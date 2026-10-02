@@ -24,6 +24,7 @@ const MENU_SECTIONS = [
       { name: 'Facturación', path: '/facturacion', icon: <Receipt size={20} /> },
     ]
   },
+  /*
   {
     title: 'Compras',
     items: [
@@ -67,16 +68,28 @@ const MENU_SECTIONS = [
       { name: 'Auditoría', path: '/auditoria', icon: <History size={20} /> },
     ]
   }
+  */
 ];
 
 export const MainLayout: React.FC = () => {
+  const [openSections, setOpenSections] = React.useState<Record<string, boolean>>({
+    'Comercial': true // Lo dejamos abierto por defecto para que veas el efecto
+  });
+
+  const toggleSection = (title: string) => {
+    setOpenSections(prev => ({
+      ...prev,
+      [title]: !prev[title]
+    }));
+  };
+
   return (
     <div className="flex h-screen bg-[#f4f7f9] font-sans">
       {/* Sidebar - Tema Claro (White) */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col transition-all duration-300">
         
         {/* Header del Sidebar */}
-        <div className="h-16 px-6 flex items-center gap-3 shrink-0">
+        <div className="h-16 px-6 flex items-center gap-3 shrink-0 border-b border-gray-100">
           <div className="flex items-center justify-center text-[#ff5a1f]">
             <Cloud size={26} strokeWidth={2.5} />
           </div>
@@ -85,34 +98,73 @@ export const MainLayout: React.FC = () => {
           </h1>
         </div>
         
-        {/* Navegación por Categorías */}
-        <nav className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
-          {MENU_SECTIONS.map((section, idx) => (
-            <div key={idx} className="mb-6">
-              <h3 className="px-3 mb-2 text-xs font-semibold text-gray-400 tracking-wide">
-                {section.title}
-              </h3>
-              <ul className="space-y-1">
-                {section.items.map((item) => (
-                  <li key={item.name}>
-                    <NavLink
-                      to={item.path}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-[15px] ${
-                          isActive 
-                            ? 'bg-[#ff5a1f] text-white shadow-sm' 
-                            : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-900'
-                        }`
-                      }
-                    >
-                      {item.icon}
-                      <span>{item.name}</span>
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+        {/* Navegación (Estilo Acordeón / Nested) */}
+        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 py-4 space-y-1">
+          {MENU_SECTIONS.map((section, idx) => {
+            // Caso especial: Dashboard (no tiene título de sección)
+            if (!section.title) {
+              return section.items.map((item) => (
+                <NavLink
+                  key={item.name}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-[15px] mb-4 ${
+                      isActive 
+                        ? 'bg-[#ff5a1f] text-white shadow-sm' 
+                        : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-900'
+                    }`
+                  }
+                >
+                  {item.icon}
+                  <span>{item.name}</span>
+                </NavLink>
+              ));
+            }
+
+            // Secciones con menú desplegable (Acordeón)
+            const isOpen = openSections[section.title];
+            
+            return (
+              <div key={idx} className="mb-2">
+                <button
+                  onClick={() => toggleSection(section.title)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors group"
+                >
+                  <span className="font-semibold text-sm tracking-wide group-hover:text-gray-900">
+                    {section.title}
+                  </span>
+                  <svg 
+                    className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[400px] opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+                  <ul className="space-y-1 pl-2 border-l border-gray-100 ml-5">
+                    {section.items.map((item) => (
+                      <li key={item.name}>
+                        <NavLink
+                          to={item.path}
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors font-medium text-[14px] ${
+                              isActive 
+                                ? 'bg-orange-50 text-[#ff5a1f]' 
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                            }`
+                          }
+                        >
+                          {React.cloneElement(item.icon as React.ReactElement, { size: 18 })}
+                          <span>{item.name}</span>
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            );
+          })}
         </nav>
         
         {/* Configuración al fondo */}
