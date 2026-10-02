@@ -2,10 +2,12 @@ import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, ShoppingCart, Package, 
-  Building2, Wallet, Settings, ShoppingBag, Bell, Search, Cloud
+  Building2, Wallet, Settings, Cloud, Bell, Search,
+  FileText, Receipt, ClipboardList, FileDown, PackageCheck,
+  Warehouse, ArrowLeftRight, Truck, TrendingUp, TrendingDown,
+  Landmark, Files, BarChart3, UserCog, ShieldCheck, Key, History
 } from 'lucide-react';
 
-// Estructura agrupada por categorías (como en tu imagen)
 const MENU_SECTIONS = [
   {
     title: '',
@@ -17,21 +19,52 @@ const MENU_SECTIONS = [
     title: 'Comercial',
     items: [
       { name: 'Clientes', path: '/clientes', icon: <Users size={20} /> },
-      { name: 'Proveedores', path: '/proveedores', icon: <Building2 size={20} /> },
+      { name: 'Cotizaciones', path: '/cotizaciones', icon: <FileText size={20} /> },
       { name: 'Ventas', path: '/ventas', icon: <ShoppingCart size={20} /> },
-      { name: 'Compras', path: '/compras', icon: <ShoppingBag size={20} /> },
+      { name: 'Facturación', path: '/facturacion', icon: <Receipt size={20} /> },
     ]
   },
   {
-    title: 'SCM & Stocks',
+    title: 'Compras',
     items: [
-      { name: 'Inventario', path: '/inventario', icon: <Package size={20} /> },
+      { name: 'Proveedores', path: '/proveedores', icon: <Building2 size={20} /> },
+      { name: 'Solicitudes', path: '/solicitudes', icon: <ClipboardList size={20} /> },
+      { name: 'Órdenes', path: '/ordenes', icon: <FileDown size={20} /> },
+      { name: 'Recepción', path: '/recepcion', icon: <PackageCheck size={20} /> },
     ]
   },
   {
-    title: 'Finance',
+    title: 'Inventario',
     items: [
-      { name: 'Finanzas', path: '/finanzas', icon: <Wallet size={20} /> },
+      { name: 'Productos', path: '/productos', icon: <Package size={20} /> },
+      { name: 'Almacenes', path: '/almacenes', icon: <Warehouse size={20} /> },
+      { name: 'Kardex', path: '/kardex', icon: <ArrowLeftRight size={20} /> },
+      { name: 'Transferencias', path: '/transferencias', icon: <Truck size={20} /> },
+    ]
+  },
+  {
+    title: 'Finanzas',
+    items: [
+      { name: 'CxC', path: '/cxc', icon: <TrendingUp size={20} /> },
+      { name: 'CxP', path: '/cxp', icon: <TrendingDown size={20} /> },
+      { name: 'Caja', path: '/caja', icon: <Wallet size={20} /> },
+      { name: 'Bancos', path: '/bancos', icon: <Landmark size={20} /> },
+    ]
+  },
+  {
+    title: 'Sistema',
+    items: [
+      { name: 'Documentos', path: '/documentos', icon: <Files size={20} /> },
+      { name: 'Reportes', path: '/reportes', icon: <BarChart3 size={20} /> },
+    ]
+  },
+  {
+    title: 'Administración',
+    items: [
+      { name: 'Usuarios', path: '/usuarios', icon: <UserCog size={20} /> },
+      { name: 'Roles', path: '/roles', icon: <ShieldCheck size={20} /> },
+      { name: 'Permisos', path: '/permisos', icon: <Key size={20} /> },
+      { name: 'Auditoría', path: '/auditoria', icon: <History size={20} /> },
     ]
   }
 ];

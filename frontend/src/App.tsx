@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { MainLayout } from './layouts/MainLayout';
 import { ClientesPage } from './modules/clientes/ClientesPage';
+import { ProveedoresPage } from './modules/proveedores/ProveedoresPage';
 
 function App() {
   return (
@@ -14,13 +15,18 @@ function App() {
             </div>
           } />
           <Route path="clientes" element={<ClientesPage />} />
-          <Route path="proveedores" element={<div className="p-6">Módulo Proveedores (En construcción)</div>} />
-          <Route path="inventario" element={<div className="p-6">Módulo Inventario (En construcción)</div>} />
-          <Route path="ventas" element={<div className="p-6">Módulo Ventas (En construcción)</div>} />
-          <Route path="compras" element={<div className="p-6">Módulo Compras (En construcción)</div>} />
-          <Route path="finanzas" element={<div className="p-6">Módulo Finanzas (En construcción)</div>} />
+          <Route path="proveedores" element={<ProveedoresPage />} />
           
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Catch-all para módulos en construcción */}
+          <Route path=":modulo" element={
+            <div className="flex flex-col items-center justify-center h-[70vh] text-center">
+              <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-[#ff5a1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-800 capitalize">Módulo en Construcción</h2>
+              <p className="text-gray-500 mt-2 max-w-md">Esta sección del sistema está programada para la siguiente fase de desarrollo.</p>
+            </div>
+          } />
         </Route>
       </Routes>
     </BrowserRouter>
