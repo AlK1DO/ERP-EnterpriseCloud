@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MainLayout } from './layouts/MainLayout';
 import { DashboardPage } from './modules/dashboard/DashboardPage';
+import { OrdenCompraPage } from './modules/compras/OrdenCompraPage';
 
 function App() {
   return (
@@ -8,6 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<DashboardPage />} />
+          <Route path="orden-compra" element={<OrdenCompraPage />} />
           
           {/* Catch-all para módulos en construcción */}
           <Route path="*" element={

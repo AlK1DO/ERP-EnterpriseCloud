@@ -80,16 +80,27 @@ export const MainLayout: React.FC = () => {
       >
         <div className="h-16 flex items-center justify-between px-4 border-b border-inherit">
           {sidebarOpen && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-md">
-                SSJ
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3">
+              <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30">
+                <div className="absolute inset-0 bg-white/20 rounded-xl blur-[2px]"></div>
+                <svg className="relative w-6 h-6 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
               </div>
-              <span className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-800'}`}>ERP Pro</span>
+              <div className="flex flex-col">
+                <span className={`font-black text-xl tracking-tight leading-none ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                  NEXUS<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">ERP</span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SSJ Edition</span>
+              </div>
             </motion.div>
           )}
           {!sidebarOpen && (
-            <div className="mx-auto w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-md">
-              SSJ
+            <div className="mx-auto relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30">
+              <div className="absolute inset-0 bg-white/20 rounded-xl blur-[2px]"></div>
+              <svg className="relative w-6 h-6 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
             </div>
           )}
         </div>

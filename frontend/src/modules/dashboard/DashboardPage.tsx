@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  TrendingUp, AlertCircle, ShoppingCart, 
-  DollarSign, Percent, Download, RefreshCw 
+  TrendingUp, TrendingDown, AlertCircle, ShoppingCart, 
+  DollarSign, Percent, Download, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
 
 interface DashboardData {
@@ -16,6 +17,9 @@ interface DashboardData {
   stockBajo: number;
   margen: number;
   chartData: any[];
+  areaChartData: any[];
+  pieData: any[];
+  stockList: any[];
 }
 
 export const DashboardPage: React.FC = () => {
@@ -23,52 +27,77 @@ export const DashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Simulación de fetch y localStorage
+  const initialData = {
+    ventasTotales: 482310.90,
+    comprasTotales: 261480,
+    ctasPendientes: 64902,
+    stockBajo: 3,
+    margen: 34.6,
+    chartData: [
+      { name: 'Ene', Ventas: 320000, Compras: 200000 },
+      { name: 'Feb', Ventas: 300000, Compras: 180000 },
+      { name: 'Mar', Ventas: 350000, Compras: 210000 },
+      { name: 'Abr', Ventas: 400000, Compras: 240000 },
+      { name: 'May', Ventas: 390000, Compras: 220000 },
+      { name: 'Jun', Ventas: 482000, Compras: 260000 },
+    ],
+    areaChartData: [
+      { name: 'L', value: 120 }, { name: 'M', value: 180 }, { name: 'X', value: 150 }, 
+      { name: 'J', value: 250 }, { name: 'V', value: 350 }, { name: 'S', value: 220 }, { name: 'D', value: 90 }
+    ],
+    pieData: [
+      { name: 'Tuberías PVC', value: 400 },
+      { name: 'Películas PP', value: 300 },
+      { name: 'Gránulos ABS', value: 200 },
+      { name: 'Accesorios', value: 100 },
+    ],
+    stockList: [
+      { id: 1, name: 'Pelicula polipropileno 1.2mm', sku: 'PP-1200 - Central', current: 128, min: 500 },
+      { id: 2, name: 'Gránulo ABS virgen 25kg', sku: 'ABS-25 - Planta', current: 46, min: 200 },
+      { id: 3, name: 'Pelicula stretch industrial 25mm', sku: 'PEL-001 - Planta', current: 40, min: 1200 },
+    ]
+  };
+
+  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444'];
+
   useEffect(() => {
     const fetchData = () => {
       setLoading(true);
       const cached = localStorage.getItem('erp_dashboard_data');
-      
       if (cached) {
         setData(JSON.parse(cached));
         setLoading(false);
       } else {
-        // Datos iniciales simulados
-        const mockData = {
-          ventasTotales: 482310.90,
-          comprasTotales: 261480,
-          ctasPendientes: 64902,
-          stockBajo: 3,
-          margen: 34.6,
-          chartData: [
-            { name: 'Ene', Ventas: 320000, Compras: 200000 },
-            { name: 'Feb', Ventas: 300000, Compras: 180000 },
-            { name: 'Mar', Ventas: 350000, Compras: 210000 },
-            { name: 'Abr', Ventas: 400000, Compras: 240000 },
-            { name: 'May', Ventas: 390000, Compras: 220000 },
-            { name: 'Jun', Ventas: 482000, Compras: 260000 },
-          ]
-        };
-        localStorage.setItem('erp_dashboard_data', JSON.stringify(mockData));
-        setData(mockData);
-        setTimeout(() => setLoading(false), 600); // Simulamos delay
+        localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
+        setData(initialData);
+        setTimeout(() => setLoading(false), 600);
       }
     };
-
     fetchData();
   }, []);
 
   const handleRefresh = () => {
     setLoading(true);
     setTimeout(() => {
-      // Simular variación en los datos
-      const newData = { ...data! };
-      newData.ventasTotales += Math.random() * 5000;
-      newData.chartData[5].Ventas = newData.ventasTotales;
+      // Generate randomized data for a more realistic refresh
+      const factor = () => 0.8 + Math.random() * 0.4; // +/- 20% variation
+      
+      const newData = {
+        ventasTotales: data!.ventasTotales * factor(),
+        comprasTotales: data!.comprasTotales * factor(),
+        ctasPendientes: data!.ctasPendientes * factor(),
+        stockBajo: Math.floor(Math.random() * 5) + 1,
+        margen: parseFloat((data!.margen + (Math.random() * 2 - 1)).toFixed(1)),
+        chartData: data!.chartData.map(d => ({ ...d, Ventas: d.Ventas * factor(), Compras: d.Compras * factor() })),
+        areaChartData: data!.areaChartData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
+        pieData: data!.pieData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
+        stockList: data!.stockList.map(item => ({ ...item, current: Math.floor(item.current * factor()) }))
+      };
+
       localStorage.setItem('erp_dashboard_data', JSON.stringify(newData));
       setData(newData);
       setLoading(false);
-    }, 800);
+    }, 600);
   };
 
   const containerVariants = {
@@ -87,7 +116,7 @@ export const DashboardPage: React.FC = () => {
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center h-full">
-        <RefreshCw className={`animate-spin ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`} size={32} />
+        <RefreshCw className={`animate-spin ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} size={32} />
       </div>
     );
   }
@@ -95,13 +124,8 @@ export const DashboardPage: React.FC = () => {
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
-    <motion.div 
-      variants={containerVariants} 
-      initial="hidden" 
-      animate="show" 
-      className="space-y-6 max-w-7xl mx-auto"
-    >
-      {/* Header */}
+    <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6 max-w-7xl mx-auto pb-10">
+      
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className={`text-2xl font-bold tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>
@@ -112,156 +136,199 @@ export const DashboardPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={handleRefresh}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors border ${
-              darkMode ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
+          <button onClick={handleRefresh} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors border ${darkMode ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
             <RefreshCw size={16} />
             Actualizar
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-600/20">
+          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/20">
             <Download size={16} />
             Exportar Resumen
           </button>
         </div>
       </div>
 
-      {/* Main Kpi - Ventas del Periodo */}
-      <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${
-        darkMode ? 'bg-gradient-to-br from-indigo-900/40 to-slate-900 border-indigo-500/20' : 'bg-white border-indigo-100 shadow-sm'
-      }`}>
-        <div className="flex justify-between items-start">
-          <div>
-            <p className={`text-sm font-semibold uppercase tracking-wider mb-2 ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>Ventas del Periodo</p>
-            <h2 className={`text-4xl md:text-5xl font-black ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-              {formatCurrency(data.ventasTotales)}
-            </h2>
+      {/* KPI Cards Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        
+        {/* Main Kpi - Ventas del Periodo (Spans 2 columns) */}
+        <motion.div variants={itemVariants} className={`col-span-1 lg:col-span-2 p-5 rounded-2xl border ${darkMode ? 'bg-gradient-to-br from-blue-900/40 to-slate-900 border-blue-500/20' : 'bg-white border-blue-100 shadow-sm'}`}>
+          <div className="flex justify-between items-start mb-2">
+            <p className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>Ventas del Periodo</p>
+            <div className="flex items-center gap-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-xs font-bold">
+              <TrendingUp size={14} /> +12.4%
+            </div>
           </div>
-          <div className="flex items-center gap-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 rounded-full text-sm font-bold">
-            <TrendingUp size={16} />
-            +12.4% vs. mayo
+          <h2 className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.ventasTotales)}</h2>
+          <div className={`mt-4 pt-4 border-t ${darkMode ? 'border-slate-800/50' : 'border-slate-100'} text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'} leading-relaxed`}>
+            Margen bruto de <span className="font-bold text-emerald-500">{data.margen}%</span>. <span className="text-rose-500 font-bold">{data.stockBajo} ref.</span> bajo stock.
           </div>
-        </div>
-        <div className={`mt-6 pt-6 border-t ${darkMode ? 'border-slate-800/50' : 'border-slate-100'} text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Margen bruto estimado de <span className="font-bold text-emerald-500">{data.margen}%</span>. <span className="text-rose-500 font-bold">{data.stockBajo} referencias</span> están por debajo del stock mínimo y comprometen los despachos programados.
-        </div>
-      </motion.div>
+        </motion.div>
 
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Compras */}
         <motion.div variants={itemVariants} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-          <div className="flex justify-between items-start mb-4">
-            <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
-              <ShoppingCart size={20} />
-            </div>
-            <span className="flex items-center text-xs font-bold text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-400 px-2 py-1 rounded-md">
-              <TrendingUp size={12} className="mr-1" /> 11.2%
+          <div className="flex justify-between items-start mb-3">
+            <div className={`p-2 rounded-lg ${darkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'}`}><ShoppingCart size={18} /></div>
+            <span className="flex items-center text-[11px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-400 px-1.5 py-0.5 rounded">
+              <TrendingUp size={10} className="mr-1" /> 11.2%
             </span>
           </div>
-          <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Compras (Actual)</p>
-          <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.comprasTotales)}</h3>
+          <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Compras</p>
+          <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.comprasTotales)}</h3>
         </motion.div>
 
         {/* Cuentas Pendientes */}
         <motion.div variants={itemVariants} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-          <div className="flex justify-between items-start mb-4">
-            <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-600'}`}>
-              <DollarSign size={20} />
-            </div>
-            <span className="flex items-center text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-500/10 dark:text-rose-400 px-2 py-1 rounded-md">
-              <TrendingUp size={12} className="mr-1" /> 8.7%
-            </span>
+          <div className="flex justify-between items-start mb-3">
+            <div className={`p-2 rounded-lg ${darkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-600'}`}><DollarSign size={18} /></div>
           </div>
-          <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Ctas. Pendientes</p>
-          <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.ctasPendientes)}</h3>
-          <p className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>3 documentos por cobrar</p>
+          <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Ctas. Pendientes</p>
+          <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.ctasPendientes)}</h3>
         </motion.div>
 
         {/* Stock Bajo */}
         <motion.div variants={itemVariants} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-          <div className="flex justify-between items-start mb-4">
-            <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-orange-500/10 text-orange-400' : 'bg-orange-50 text-orange-600'}`}>
-              <AlertCircle size={20} />
-            </div>
-            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-2 mr-2"></div>
+          <div className="flex justify-between items-start mb-3">
+            <div className={`p-2 rounded-lg ${darkMode ? 'bg-orange-500/10 text-orange-400' : 'bg-orange-50 text-orange-600'}`}><AlertCircle size={18} /></div>
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-1 mr-1"></div>
           </div>
-          <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Stock Crítico</p>
-          <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{data.stockBajo} SKU</h3>
-          <p className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Requiere reposición urgente</p>
-        </motion.div>
-
-        {/* Margen */}
-        <motion.div variants={itemVariants} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-          <div className="flex justify-between items-start mb-4">
-            <div className={`p-2.5 rounded-xl ${darkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
-              <Percent size={20} />
-            </div>
-            <span className="flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400 px-2 py-1 rounded-md">
-              <TrendingUp size={12} className="mr-1" /> 1.8 pts
-            </span>
-          </div>
-          <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Margen Bruto</p>
-          <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{data.margen}%</h3>
-          <p className={`text-xs mt-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Acumulado del mes</p>
+          <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Stock Crítico</p>
+          <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{data.stockBajo} SKU</h3>
         </motion.div>
       </div>
 
-      {/* Chart Section */}
-      <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[450px] flex flex-col`}>
-        <div className="mb-6">
-          <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
-          <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Evolución de los últimos 6 meses</p>
+      {/* Main Bar Chart */}
+      <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[380px] flex flex-col`}>
+        <div className="mb-4">
+          <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
+          <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Últimos 6 meses</p>
         </div>
         <div className="flex-1 w-full min-h-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} 
-                dy={10} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }}
-                tickFormatter={(val) => `S/ ${(val / 1000)}k`} 
-              />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `S/ ${(val / 1000)}k`} />
               <Tooltip 
                 cursor={{ fill: darkMode ? '#1e293b' : '#f8fafc' }}
-                contentStyle={{ 
-                  backgroundColor: darkMode ? '#0f172a' : '#ffffff',
-                  borderColor: darkMode ? '#334155' : '#e2e8f0',
-                  borderRadius: '12px',
-                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
-                }}
+                contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
                 formatter={(value: any) => [formatCurrency(value), '']}
               />
-              <Legend 
-                iconType="circle" 
-                wrapperStyle={{ paddingTop: '20px' }} 
-              />
-              <Bar 
-                dataKey="Ventas" 
-                fill="#4f46e5" 
-                radius={[4, 4, 0, 0]} 
-                barSize={32}
-                name="Ventas Totales"
-              />
-              <Bar 
-                dataKey="Compras" 
-                fill={darkMode ? '#38bdf8' : '#93c5fd'} 
-                radius={[4, 4, 0, 0]} 
-                barSize={32}
-                name="Compras Totales"
-              />
+              <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px' }} />
+              <Bar dataKey="Ventas" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={24} />
+              <Bar dataKey="Compras" fill={darkMode ? '#38bdf8' : '#bfdbfe'} radius={[4, 4, 0, 0]} barSize={24} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </motion.div>
+
+      {/* Row for Area Chart & Pie Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* Ventas de la semana (Area Chart) */}
+        <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
+          <div className="mb-2">
+            <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas de la semana</h3>
+            <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>ÚLTIMOS 7 DÍAS</p>
+          </div>
+          <div className="flex-1 w-full min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data.areaChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
+                />
+                <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+
+        {/* Participación por línea (Pie Chart) */}
+        <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
+          <div className="mb-2">
+            <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Participación por línea</h3>
+            <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>JUNIO 2026</p>
+          </div>
+          <div className="flex-1 w-full min-h-0 relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={data.pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                  stroke="none"
+                >
+                  {data.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* Custom Legend */}
+            <div className="flex flex-wrap justify-center gap-4 mt-2">
+              {data.pieData.map((entry, index) => (
+                <div key={index} className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></div>
+                  <span className={`text-[11px] font-medium ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{entry.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+
+      </div>
+
+      {/* Alerta Activa - Stock */}
+      <motion.div variants={itemVariants} className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200'}`}>
+        <div className={`px-5 py-3 border-b flex items-center justify-between ${darkMode ? 'bg-orange-950/30 border-orange-900/50' : 'bg-orange-50 border-orange-100'}`}>
+          <div className="flex items-center gap-2 text-orange-600 dark:text-orange-500 font-bold text-sm tracking-widest uppercase">
+            <AlertTriangle size={16} /> ALERTA ACTIVA
+          </div>
+          <span className="text-xs font-mono text-orange-500 dark:text-orange-600/70">ALR-3041</span>
+        </div>
+        
+        <div className="p-6">
+          <h4 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Stock por debajo del mínimo en {data.stockBajo} referencias</h4>
+          <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Las salidas programadas de esta semana superan el saldo disponible. Se recomienda emitir orden de compra antes del cierre.</p>
+          
+          <div className="mt-6 space-y-4">
+            {data.stockList.slice(0, data.stockBajo).map((item) => (
+              <div key={item.id} className={`flex items-center justify-between pb-4 border-b last:border-0 last:pb-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                <div>
+                  <p className={`text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{item.name}</p>
+                  <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{item.sku}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{item.current}</span>
+                  <span className={`text-sm ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}> / {item.min}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 flex gap-3">
+            <button className="flex-1 bg-orange-100 hover:bg-orange-200 text-orange-700 dark:bg-orange-500/10 dark:hover:bg-orange-500/20 dark:text-orange-400 py-2.5 rounded-lg text-sm font-bold transition-colors">
+              Generar orden de compra
+            </button>
+            <button className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-colors border ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+              Posponer
+            </button>
+          </div>
         </div>
       </motion.div>
 
