@@ -33,6 +33,7 @@ export const OrdenVentaPage: React.FC = () => {
     { nombre: 'Universidad Nacional Mayor', ruc: '20222222222', condicion: 'Contado', tipo: 'Educación' },
     { nombre: 'Grupo Retail del Perú', ruc: '20333333333', condicion: 'Crédito 15 días', tipo: 'Retail' },
     { nombre: 'Consultores TI Asociados', ruc: '20444444444', condicion: 'Contado', tipo: 'Servicios' },
+    { nombre: 'Julio Yanavelca Yanavilca', ruc: '10748596123', condicion: 'Contado', tipo: 'Persona Natural' },
   ];
 
   // Base de datos de productos persistente en localStorage para descontar stock
