@@ -2,6 +2,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MainLayout } from './layouts/MainLayout';
 import { DashboardPage } from './modules/dashboard/DashboardPage';
 import { OrdenCompraPage } from './modules/compras/OrdenCompraPage';
+import { OrdenVentaPage } from './modules/ventas/OrdenVentaPage';
+import { FacturacionPage } from './modules/ventas/FacturacionPage';
+import { EstadoCuentaPage } from './modules/ventas/EstadoCuentaPage';
 
 function App() {
   return (
@@ -10,6 +13,9 @@ function App() {
         <Route path="/" element={<MainLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="orden-compra" element={<OrdenCompraPage />} />
+          <Route path="orden-venta" element={<OrdenVentaPage />} />
+          <Route path="facturacion" element={<FacturacionPage />} />
+          <Route path="estado-cuenta" element={<EstadoCuentaPage />} />
           
           {/* Catch-all para módulos en construcción */}
           <Route path="*" element={

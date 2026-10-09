@@ -74,7 +74,7 @@ export const MainLayout: React.FC = () => {
       <motion.aside
         initial={{ width: 260 }}
         animate={{ width: sidebarOpen ? 260 : 80 }}
-        className={`fixed md:relative z-30 h-full flex flex-col transition-colors duration-300 ${
+        className={`fixed md:relative z-30 h-full flex flex-col transition-colors duration-300 print:hidden ${
           darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
         } border-r shadow-xl md:shadow-none`}
       >
@@ -159,10 +159,10 @@ export const MainLayout: React.FC = () => {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 print:block print:h-auto print:overflow-visible">
         
         {/* Header */}
-        <header className={`h-16 flex items-center justify-between px-6 border-b transition-colors duration-300 ${
+        <header className={`h-16 flex items-center justify-between px-6 border-b transition-colors duration-300 print:hidden ${
           darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
         }`}>
           <div className="flex items-center gap-4">
@@ -189,7 +189,7 @@ export const MainLayout: React.FC = () => {
         </header>
 
         {/* Content */}
-        <div className={`flex-1 overflow-auto p-4 md:p-6 lg:p-8 ${darkMode ? 'bg-slate-950' : 'bg-slate-50/50'}`}>
+        <div className={`flex-1 overflow-auto p-4 md:p-6 lg:p-8 print:p-0 print:overflow-visible print:bg-white ${darkMode ? 'bg-slate-950' : 'bg-slate-50/50'}`}>
           <Outlet context={{ darkMode }} />
         </div>
       </main>
