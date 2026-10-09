@@ -81,25 +81,23 @@ export const MainLayout: React.FC = () => {
         <div className="h-16 flex items-center justify-between px-4 border-b border-inherit">
           {sidebarOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3">
-              <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30">
-                <div className="absolute inset-0 bg-white/20 rounded-xl blur-[2px]"></div>
-                <svg className="relative w-6 h-6 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-700 shadow-sm text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
                 </svg>
               </div>
               <div className="flex flex-col">
-                <span className={`font-black text-xl tracking-tight leading-none ${darkMode ? 'text-white' : 'text-slate-800'}`}>
-                  NEXUS<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">ERP</span>
+                <span className={`font-bold text-lg tracking-tight leading-none ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                  ERP <span className="text-blue-600">SENATINO</span>
                 </span>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SSJ Edition</span>
+                <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Sistema de Gestión</span>
               </div>
             </motion.div>
           )}
           {!sidebarOpen && (
-            <div className="mx-auto relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 shadow-lg shadow-indigo-500/30">
-              <div className="absolute inset-0 bg-white/20 rounded-xl blur-[2px]"></div>
-              <svg className="relative w-6 h-6 text-white drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            <div className="mx-auto flex items-center justify-center w-9 h-9 rounded-lg bg-blue-700 shadow-sm text-white">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
               </svg>
             </div>
           )}
@@ -172,7 +170,7 @@ export const MainLayout: React.FC = () => {
                <Menu size={20} />
              </button>
              <div className="hidden sm:block">
-               <h2 className="text-sm font-semibold opacity-70">TechSkillsPeru ERP - Demo</h2>
+               <h2 className="text-sm font-semibold opacity-70">ERP SENATINO</h2>
              </div>
           </div>
           
