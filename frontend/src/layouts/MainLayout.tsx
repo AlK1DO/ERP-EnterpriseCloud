@@ -1,220 +1,190 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, ShoppingCart, Package, 
-  Building2, Wallet, Settings, Cloud, Bell, Search,
-  FileText, Receipt, ClipboardList, FileDown, PackageCheck,
-  Warehouse, ArrowLeftRight, Truck, TrendingUp, TrendingDown,
-  Landmark, Files, BarChart3, UserCog, ShieldCheck, Key, History
+  LayoutDashboard, ShoppingCart, Receipt, FileText, 
+  Package, ArrowRightLeft, Boxes, FileBarChart, 
+  Settings, Menu, Bell, Sun, Moon
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const MENU_SECTIONS = [
   {
-    title: '',
+    title: 'INICIO',
     items: [
-      { name: 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
+      { name: 'Panel', path: '/', icon: <LayoutDashboard size={20} /> },
     ]
   },
   {
-    title: 'Comercial',
+    title: 'COMPRAS',
     items: [
-      { name: 'Clientes', path: '/clientes', icon: <Users size={20} /> },
-      { name: 'Cotizaciones', path: '/cotizaciones', icon: <FileText size={20} /> },
-      { name: 'Ventas', path: '/ventas', icon: <ShoppingCart size={20} /> },
-      { name: 'Facturación', path: '/facturacion', icon: <Receipt size={20} /> },
-    ]
-  },
-  /*
-  {
-    title: 'Compras',
-    items: [
-      { name: 'Proveedores', path: '/proveedores', icon: <Building2 size={20} /> },
-      { name: 'Solicitudes', path: '/solicitudes', icon: <ClipboardList size={20} /> },
-      { name: 'Órdenes', path: '/ordenes', icon: <FileDown size={20} /> },
-      { name: 'Recepción', path: '/recepcion', icon: <PackageCheck size={20} /> },
+      { name: 'Orden de compra', path: '/orden-compra', icon: <ShoppingCart size={20} /> },
     ]
   },
   {
-    title: 'Inventario',
+    title: 'VENTAS',
     items: [
-      { name: 'Productos', path: '/productos', icon: <Package size={20} /> },
-      { name: 'Almacenes', path: '/almacenes', icon: <Warehouse size={20} /> },
-      { name: 'Kardex', path: '/kardex', icon: <ArrowLeftRight size={20} /> },
-      { name: 'Transferencias', path: '/transferencias', icon: <Truck size={20} /> },
+      { name: 'Orden de venta', path: '/orden-venta', icon: <Receipt size={20} /> },
+      { name: 'Facturación', path: '/facturacion', icon: <FileText size={20} /> },
+      { name: 'Estado de cuenta', path: '/estado-cuenta', icon: <FileBarChart size={20} /> },
     ]
   },
   {
-    title: 'Finanzas',
+    title: 'INVENTARIOS',
     items: [
-      { name: 'CxC', path: '/cxc', icon: <TrendingUp size={20} /> },
-      { name: 'CxP', path: '/cxp', icon: <TrendingDown size={20} /> },
-      { name: 'Caja', path: '/caja', icon: <Wallet size={20} /> },
-      { name: 'Bancos', path: '/bancos', icon: <Landmark size={20} /> },
+      { name: 'Ingreso al Kardex', path: '/ingreso-kardex', icon: <Package size={20} /> },
+      { name: 'Movimiento de Kardex', path: '/movimiento-kardex', icon: <ArrowRightLeft size={20} /> },
+      { name: 'Stock de productos', path: '/stock-productos', icon: <Boxes size={20} /> },
     ]
   },
   {
-    title: 'Sistema',
+    title: 'ADMINISTRACIÓN',
     items: [
-      { name: 'Documentos', path: '/documentos', icon: <Files size={20} /> },
-      { name: 'Reportes', path: '/reportes', icon: <BarChart3 size={20} /> },
-    ]
-  },
-  {
-    title: 'Administración',
-    items: [
-      { name: 'Usuarios', path: '/usuarios', icon: <UserCog size={20} /> },
-      { name: 'Roles', path: '/roles', icon: <ShieldCheck size={20} /> },
-      { name: 'Permisos', path: '/permisos', icon: <Key size={20} /> },
-      { name: 'Auditoría', path: '/auditoria', icon: <History size={20} /> },
+      { name: 'Reportes', path: '/reportes', icon: <FileBarChart size={20} /> },
+      { name: 'Mantenimientos', path: '/mantenimientos', icon: <Settings size={20} /> },
     ]
   }
-  */
 ];
 
 export const MainLayout: React.FC = () => {
-  const [openSections, setOpenSections] = React.useState<Record<string, boolean>>({
-    'Comercial': true // Lo dejamos abierto por defecto para que veas el efecto
-  });
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
 
-  const toggleSection = (title: string) => {
-    setOpenSections(prev => ({
-      ...prev,
-      [title]: !prev[title]
-    }));
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+    document.documentElement.classList.toggle('dark');
   };
 
   return (
-    <div className="flex h-screen bg-[#f4f7f9] font-sans">
-      {/* Sidebar - Tema Claro (White) */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col transition-all duration-300">
-        
-        {/* Header del Sidebar */}
-        <div className="h-16 px-6 flex items-center gap-3 shrink-0 border-b border-gray-100">
-          <div className="flex items-center justify-center text-[#ff5a1f]">
-            <Cloud size={26} strokeWidth={2.5} />
-          </div>
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-            Cloud ERP
-          </h1>
-        </div>
-        
-        {/* Navegación (Estilo Acordeón / Nested) */}
-        <nav className="flex-1 overflow-y-auto custom-scrollbar px-3 py-4 space-y-1">
-          {MENU_SECTIONS.map((section, idx) => {
-            // Caso especial: Dashboard (no tiene título de sección)
-            if (!section.title) {
-              return section.items.map((item) => (
-                <NavLink
-                  key={item.name}
-                  to={item.path}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors font-medium text-[15px] mb-4 ${
-                      isActive 
-                        ? 'bg-[#ff5a1f] text-white shadow-sm' 
-                        : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-900'
-                    }`
-                  }
-                >
-                  {item.icon}
-                  <span>{item.name}</span>
-                </NavLink>
-              ));
-            }
+    <div className={`flex h-screen overflow-hidden ${darkMode ? 'dark bg-slate-900' : 'bg-slate-50'}`}>
+      
+      {/* Sidebar Overlay (Mobile) */}
+      <AnimatePresence>
+        {!sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="md:hidden fixed inset-0 z-20 bg-black/50"
+            onClick={() => setSidebarOpen(true)}
+          />
+        )}
+      </AnimatePresence>
 
-            // Secciones con menú desplegable (Acordeón)
-            const isOpen = openSections[section.title];
-            
-            return (
-              <div key={idx} className="mb-2">
-                <button
-                  onClick={() => toggleSection(section.title)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors group"
-                >
-                  <span className="font-semibold text-sm tracking-wide group-hover:text-gray-900">
-                    {section.title}
-                  </span>
-                  <svg 
-                    className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                
-                <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[400px] opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-                  <ul className="space-y-1 pl-2 border-l border-gray-100 ml-5">
-                    {section.items.map((item) => (
-                      <li key={item.name}>
-                        <NavLink
-                          to={item.path}
-                          className={({ isActive }) =>
-                            `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors font-medium text-[14px] ${
-                              isActive 
-                                ? 'bg-orange-50 text-[#ff5a1f]' 
-                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                            }`
-                          }
-                        >
-                          {React.cloneElement(item.icon as React.ReactElement, { size: 18 })}
-                          <span>{item.name}</span>
-                        </NavLink>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+      {/* Sidebar */}
+      <motion.aside
+        initial={{ width: 260 }}
+        animate={{ width: sidebarOpen ? 260 : 80 }}
+        className={`fixed md:relative z-30 h-full flex flex-col transition-colors duration-300 ${
+          darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        } border-r shadow-xl md:shadow-none`}
+      >
+        <div className="h-16 flex items-center justify-between px-4 border-b border-inherit">
+          {sidebarOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-md">
+                SSJ
               </div>
-            );
-          })}
-        </nav>
-        
-        {/* Configuración al fondo */}
-        <div className="p-4 border-t border-gray-100 z-10">
-          <button className="flex items-center gap-3 text-gray-600 hover:text-gray-900 hover:bg-gray-100 w-full px-3 py-2.5 rounded-lg transition-colors font-medium text-[15px]">
-            <Settings size={20} />
-            <span>Configuración</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-        
-        {/* Header Superior */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center px-8 justify-between shrink-0 z-10">
-          
-          <div className="flex items-center gap-4 flex-1">
-            <div className="relative w-96 hidden md:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Buscar..." 
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:border-[#ff5a1f] focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] transition-all"
-              />
+              <span className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-800'}`}>ERP Pro</span>
+            </motion.div>
+          )}
+          {!sidebarOpen && (
+            <div className="mx-auto w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-md">
+              SSJ
             </div>
+          )}
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6 custom-scrollbar">
+          {MENU_SECTIONS.map((section, idx) => (
+            <div key={idx}>
+              {sidebarOpen && (
+                <p className={`px-3 mb-2 text-[10px] font-bold tracking-widest uppercase ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {section.title}
+                </p>
+              )}
+              <div className="space-y-1">
+                {section.items.map((item, itemIdx) => (
+                  <NavLink
+                    key={itemIdx}
+                    to={item.path}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${
+                        isActive
+                          ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400 font-semibold'
+                          : `hover:bg-slate-100 dark:hover:bg-slate-800/50 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`
+                      }`
+                    }
+                    title={!sidebarOpen ? item.name : undefined}
+                  >
+                    <div className="shrink-0">{item.icon}</div>
+                    <AnimatePresence>
+                      {sidebarOpen && (
+                        <motion.span 
+                          initial={{ opacity: 0, width: 0 }} 
+                          animate={{ opacity: 1, width: 'auto' }} 
+                          exit={{ opacity: 0, width: 0 }}
+                          className="truncate text-sm"
+                        >
+                          {item.name}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-inherit">
+           <button 
+             onClick={() => setSidebarOpen(!sidebarOpen)}
+             className={`w-full flex items-center justify-center p-2.5 rounded-xl transition-colors ${
+               darkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+             }`}
+           >
+             <Menu size={20} />
+           </button>
+        </div>
+      </motion.aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0">
+        
+        {/* Header */}
+        <header className={`h-16 flex items-center justify-between px-6 border-b transition-colors duration-300 ${
+          darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
+        }`}>
+          <div className="flex items-center gap-4">
+             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+               <Menu size={20} />
+             </button>
+             <div className="hidden sm:block">
+               <h2 className="text-sm font-semibold opacity-70">TechSkillsPeru ERP - Demo</h2>
+             </div>
           </div>
-
-          <div className="flex items-center gap-5">
-            <button className="text-gray-400 hover:text-gray-600 transition-colors relative">
-              <Bell size={20} />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full"></span>
+          
+          <div className="flex items-center gap-4">
+            <button onClick={toggleDarkMode} className={`p-2 rounded-full transition-colors ${darkMode ? 'hover:bg-slate-800 bg-slate-800' : 'hover:bg-slate-100 bg-slate-50'}`}>
+              {darkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
             </button>
-
-            <div className="flex items-center gap-3 cursor-pointer pl-4 border-l border-gray-200">
-              <div className="w-8 h-8 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                AU
-              </div>
-              <div className="text-left hidden md:block">
-                <p className="text-sm font-semibold text-gray-700 leading-tight">Admin</p>
-              </div>
+            <button className={`p-2 rounded-full relative transition-colors ${darkMode ? 'hover:bg-slate-800 bg-slate-800' : 'hover:bg-slate-100 bg-slate-50'}`}>
+              <Bell size={18} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+            </button>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm cursor-pointer border-2 border-white dark:border-slate-800">
+              MR
             </div>
           </div>
         </header>
 
-        {/* Content Area con scroll */}
-        <div className="flex-1 overflow-auto p-8 bg-[#f4f7f9]">
-          <Outlet />
+        {/* Content */}
+        <div className={`flex-1 overflow-auto p-4 md:p-6 lg:p-8 ${darkMode ? 'bg-slate-950' : 'bg-slate-50/50'}`}>
+          <Outlet context={{ darkMode }} />
         </div>
       </main>
+
     </div>
   );
 };
