@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Save, FileText, CheckCircle, XCircle, Send, PlusCircle, Calculator } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Save, FileText, XCircle, PlusCircle, Calculator } from 'lucide-react';
 import { cotizacionesService } from '../../services/cotizacionesService';
 import { clientesService } from '../../services/clientesService';
 import type { Cotizacion, CotizacionFormData, CotizacionItem } from '../../services/cotizacionesService';
@@ -373,7 +373,7 @@ export const CotizacionesPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {formData.items.map((item, index) => (
+                      {formData.items.map((item) => (
                         <tr key={item.id}>
                           <td className="px-4 py-2">
                             <input type="text" required placeholder="Nombre del producto o servicio"

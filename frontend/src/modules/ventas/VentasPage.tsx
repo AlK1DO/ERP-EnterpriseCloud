@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Save, ShoppingCart, CheckCircle, XCircle, PlusCircle, Calculator, CreditCard } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Save, ShoppingCart, XCircle, PlusCircle, Calculator } from 'lucide-react';
 import { ventasService } from '../../services/ventasService';
 import { clientesService } from '../../services/clientesService';
 import type { Venta, VentaFormData, VentaItem } from '../../services/ventasService';
@@ -375,7 +375,7 @@ export const VentasPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {formData.items.map((item, index) => (
+                      {formData.items.map((item) => (
                         <tr key={item.id}>
                           <td className="px-4 py-2">
                             <input type="text" required placeholder="Ej: Laptop Dell Inspiron"
