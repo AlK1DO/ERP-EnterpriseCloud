@@ -65,7 +65,14 @@ export const DashboardPage: React.FC = () => {
       setLoading(true);
       const cached = localStorage.getItem('erp_dashboard_data');
       if (cached) {
-        setData(JSON.parse(cached));
+        const parsedData = JSON.parse(cached);
+        // Si la data en caché es de una versión anterior y no tiene pieData, usamos la data inicial y actualizamos el caché
+        if (!parsedData.pieData) {
+          localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
+          setData(initialData);
+        } else {
+          setData(parsedData);
+        }
         setLoading(false);
       } else {
         localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
