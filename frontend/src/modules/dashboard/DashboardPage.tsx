@@ -12,6 +12,8 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+import { inventarioService } from '../../services/inventarioService';
+
 interface DashboardData {
   ventasTotales: number;
   comprasTotales: number;
@@ -34,91 +36,105 @@ export const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  const initialData = {
-    ventasTotales: 482310.90,
-    comprasTotales: 261480,
-    ctasPendientes: 64902,
-    stockBajo: 3,
-    margen: 34.6,
-    chartData: [
-      { name: 'Ene', Ventas: 320000, Compras: 200000 },
-      { name: 'Feb', Ventas: 300000, Compras: 180000 },
-      { name: 'Mar', Ventas: 350000, Compras: 210000 },
-      { name: 'Abr', Ventas: 400000, Compras: 240000 },
-      { name: 'May', Ventas: 390000, Compras: 220000 },
-      { name: 'Jun', Ventas: 482000, Compras: 260000 },
-    ],
-    areaChartData: [
-      { name: 'L', value: 120 }, { name: 'M', value: 180 }, { name: 'X', value: 150 }, 
-      { name: 'J', value: 250 }, { name: 'V', value: 350 }, { name: 'S', value: 220 }, { name: 'D', value: 90 }
-    ],
-    pieData: [
-      { name: 'Servidores & Redes', value: 400 },
-      { name: 'Laptops Corporativas', value: 300 },
-      { name: 'Monitores', value: 200 },
-      { name: 'Periféricos', value: 100 },
-    ],
-    stockList: [
-      { id: 1, name: 'Laptop HP ProBook 450 G8 15.6"', sku: 'LAP-HP450 - Almacén Central', current: 12, min: 50 },
-      { id: 2, name: 'Monitor Dell UltraSharp 27 4K', sku: 'MON-DELL27 - Tienda Sur', current: 8, min: 30 },
-      { id: 3, name: 'Teclado Mecánico Logitech MX', sku: 'TEC-MXM - Almacén Central', current: 5, min: 40 },
-    ],
-    ultimosMovimientos: [
-      { id: 1, fecha: '08 Jun 2026', descripcion: 'Ingreso de mercadería - Fac #4402', tipo: 'ingreso', monto: 12500.00 },
-      { id: 2, fecha: '07 Jun 2026', descripcion: 'Pago a proveedor - TechSolutions SAC', tipo: 'salida', monto: 4200.50 },
-      { id: 3, fecha: '07 Jun 2026', descripcion: 'Venta corporativa - Grupo Rey', tipo: 'ingreso', monto: 35000.00 },
-      { id: 4, fecha: '06 Jun 2026', descripcion: 'Compra de hardware - Orden #102', tipo: 'salida', monto: 8300.00 },
-    ]
+  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  const computeRealData = async (): Promise<DashboardData> => {
+    // 1. Ventas reales
+    const cachedVentas = localStorage.getItem('erp_ordenes_venta');
+    const ventas: any[] = cachedVentas ? JSON.parse(cachedVentas) : [];
+    const ventasTotales = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+
+    // 2. Compras reales
+    const cachedCompras = localStorage.getItem('erp_ordenes_compra');
+    const compras: any[] = cachedCompras ? JSON.parse(cachedCompras) : [];
+    const comprasTotales = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+
+    // 3. Cuentas pendientes reales
+    const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
+    const cuentas: any[] = cachedCuenta ? JSON.parse(cachedCuenta) : [];
+    const ctasPendientes = cuentas.reduce((acc, d) => acc + (Number(d.saldo) || 0), 0);
+
+    // 4. Productos y Stock reales
+    const productos = await inventarioService.getProductos();
+    const stockCritico = productos.filter(p => p.stock <= p.stockMinimo);
+    const stockBajo = stockCritico.length;
+
+    // 5. Margen
+    const margen = ventasTotales > 0 
+      ? parseFloat((((ventasTotales - comprasTotales) / ventasTotales) * 100).toFixed(1))
+      : 0;
+
+    // 6. Lista de Stock
+    const stockList = productos.map(p => ({
+      id: p.id,
+      name: p.descripcion,
+      sku: `${p.codigo} - ${p.almacen}`,
+      current: p.stock,
+      min: p.stockMinimo
+    }));
+
+    // 7. Movimientos reales de Kardex
+    const kardexMovs = await inventarioService.getMovimientos();
+    const ultimosMovimientos = kardexMovs.slice(0, 5).map((m, idx) => ({
+      id: m.id || idx,
+      fecha: new Date(m.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      descripcion: `${m.documentoTipo} ${m.documentoNumero} - ${m.productoDescripcion}`,
+      tipo: m.tipoMovimiento === 'ENTRADA' ? 'ingreso' : 'salida',
+      monto: m.tipoMovimiento === 'ENTRADA' ? (m.totalEntrada || 0) : (m.totalSalida || 0)
+    }));
+
+    // 8. Participación por línea según valorización de inventario
+    const catMap: Record<string, number> = {};
+    productos.forEach(p => {
+      catMap[p.categoria] = (catMap[p.categoria] || 0) + (p.stock * p.precioVenta);
+    });
+    const pieData = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.round(value) }));
+    if (pieData.length === 0) {
+      pieData.push({ name: 'Sin productos', value: 1 });
+    }
+
+    // 9. Datos de comparación real
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const currentMonth = monthNames[new Date().getMonth()];
+    const chartData = [
+      { name: currentMonth, Ventas: Math.round(ventasTotales), Compras: Math.round(comprasTotales) }
+    ];
+
+    const areaChartData = [
+      { name: 'L', value: Math.round(ventasTotales * 0.1) },
+      { name: 'M', value: Math.round(ventasTotales * 0.15) },
+      { name: 'X', value: Math.round(ventasTotales * 0.2) },
+      { name: 'J', value: Math.round(ventasTotales * 0.25) },
+      { name: 'V', value: Math.round(ventasTotales * 0.3) },
+    ];
+
+    return {
+      ventasTotales,
+      comprasTotales,
+      ctasPendientes,
+      stockBajo,
+      margen,
+      chartData,
+      areaChartData,
+      pieData,
+      stockList,
+      ultimosMovimientos
+    };
   };
 
-  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444'];
+  const loadData = async () => {
+    setLoading(true);
+    const realData = await computeRealData();
+    setData(realData);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchData = () => {
-      setLoading(true);
-      const cached = localStorage.getItem('erp_dashboard_data');
-      if (cached) {
-        const parsedData = JSON.parse(cached);
-        // Si el pieData tiene Tuberías PVC (el dato viejo del profe), lo reiniciamos
-        if (!parsedData.pieData || parsedData.pieData[0].name === 'Tuberías PVC') {
-          localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
-          setData(initialData);
-        } else {
-          setData(parsedData);
-        }
-        setLoading(false);
-      } else {
-        localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
-        setData(initialData);
-        setTimeout(() => setLoading(false), 600);
-      }
-    };
-    fetchData();
+    loadData();
   }, []);
 
-  const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => {
-      const factor = () => 0.8 + Math.random() * 0.4;
-      
-      const newData = {
-        ...data!,
-        ventasTotales: data!.ventasTotales * factor(),
-        comprasTotales: data!.comprasTotales * factor(),
-        ctasPendientes: data!.ctasPendientes * factor(),
-        stockBajo: Math.floor(Math.random() * 5) + 1,
-        margen: parseFloat((data!.margen + (Math.random() * 2 - 1)).toFixed(1)),
-        chartData: data!.chartData.map(d => ({ ...d, Ventas: d.Ventas * factor(), Compras: d.Compras * factor() })),
-        areaChartData: data!.areaChartData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
-        pieData: data!.pieData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
-        stockList: data!.stockList.map(item => ({ ...item, current: Math.floor(item.current * factor()) })),
-        ultimosMovimientos: data!.ultimosMovimientos.map(item => ({ ...item, monto: item.monto * factor() }))
-      };
-
-      localStorage.setItem('erp_dashboard_data', JSON.stringify(newData));
-      setData(newData);
-      setLoading(false);
-    }, 600);
+  const handleRefresh = async () => {
+    await loadData();
   };
 
   const handleExportPDF = () => {
@@ -433,22 +449,34 @@ export const DashboardPage: React.FC = () => {
           </div>
           
           <div className="p-6">
-            <h4 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Stock por debajo del mínimo en {data.stockBajo} referencias</h4>
-            <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Las salidas programadas de esta semana superan el saldo disponible. Se recomienda emitir orden de compra antes del cierre.</p>
+            <h4 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+              {data.stockBajo > 0 
+                ? `Stock por debajo del mínimo en ${data.stockBajo} referencias` 
+                : 'Inventario en niveles óptimos'}
+            </h4>
+            <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              {data.stockBajo > 0
+                ? 'Las existencias actuales requieren reposición. Se recomienda emitir orden de compra.'
+                : 'Todas las referencias activas cuentan con existencias suficientes según el stock de seguridad.'}
+            </p>
             
             <div className="mt-6 space-y-4">
-              {data.stockList.slice(0, data.stockBajo).map((item) => (
-                <div key={item.id} className={`flex items-center justify-between pb-4 border-b last:border-0 last:pb-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-                  <div>
-                    <p className={`text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{item.name}</p>
-                    <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{item.sku}</p>
+              {data.stockList.filter(item => item.current <= item.min).length === 0 ? (
+                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No hay alertas críticas pendientes.</p>
+              ) : (
+                data.stockList.filter(item => item.current <= item.min).map((item) => (
+                  <div key={item.id} className={`flex items-center justify-between pb-4 border-b last:border-0 last:pb-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <div>
+                      <p className={`text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{item.name}</p>
+                      <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{item.sku}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{item.current}</span>
+                      <span className={`text-sm ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}> / {item.min}</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{item.current}</span>
-                    <span className={`text-sm ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}> / {item.min}</span>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             <div className="mt-6 flex gap-3 pdf-exclude-buttons">

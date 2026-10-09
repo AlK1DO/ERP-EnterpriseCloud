@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle
 } from 'lucide-react';
+import { inventarioService, type Producto } from '../../services/inventarioService';
 
 interface ProductLine {
   id: string;
@@ -23,6 +24,11 @@ export const OrdenCompraPage: React.FC = () => {
   const [inputPrecio, setInputPrecio] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4000);
+  };
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,17 +42,13 @@ export const OrdenCompraPage: React.FC = () => {
     { nombre: 'HP Inc Perú S.A.', ruc: '20456789123', condicion: 'Contado' },
   ];
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  };
-  
-  // Base de datos simulada
-  const productDB = [
-    { id: '1', codigo: 'LAP-HP450', descripcion: 'Laptop HP ProBook 450 G8 15.6"', unidad: 'UNID' },
-    { id: '2', codigo: 'MON-DELL27', descripcion: 'Monitor Dell UltraSharp 27 4K', unidad: 'UNID' },
-    { id: '3', codigo: 'TEC-MXM', descripcion: 'Teclado Mecánico Logitech MX', unidad: 'UNID' },
-  ];
+  const [productDB, setProductDB] = useState<Producto[]>([]);
+
+  useEffect(() => {
+    inventarioService.getProductos().then(prods => {
+      setProductDB(prods);
+    });
+  }, []);
 
   const handleAddProduct = () => {
     if (!searchQuery || !inputCant || !inputPrecio) return;
@@ -92,35 +94,53 @@ export const OrdenCompraPage: React.FC = () => {
       return;
     }
 
+    const ocId = `OC-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
+    const cachedOCs = localStorage.getItem('erp_ordenes_compra');
+    const ocs = cachedOCs ? JSON.parse(cachedOCs) : [];
+    const newOC = {
+      id: ocId,
+      proveedor: selectedProveedor ? selectedProveedor.nombre : 'Proveedor General',
+      ruc: selectedProveedor ? selectedProveedor.ruc : '',
+      fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      total,
+      subtotal,
+      igv,
+      items: products.map(p => ({
+        codigo: p.codigo,
+        descripcion: p.descripcion,
+        unidad: p.unidad,
+        cantidad: p.cantidad,
+        precioUnitario: p.precioUnitario,
+        importe: p.importe
+      })),
+      estado: 'Emitida'
+    };
+    localStorage.setItem('erp_ordenes_compra', JSON.stringify([newOC, ...ocs]));
+
     // Obtener los datos actuales del Dashboard desde localStorage
     const cached = localStorage.getItem('erp_dashboard_data');
     if (cached) {
       const dashboardData = JSON.parse(cached);
-      
-      // Actualizar total de compras
       dashboardData.comprasTotales += total;
       
-      // Crear un nuevo movimiento para el dashboard
       const today = new Date();
       const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
       const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
       
+      const descProv = selectedProveedor?.nombre ? selectedProveedor.nombre.substring(0, 20) : 'Proveedor';
       const newMovement = {
         id: Date.now(),
         fecha: dateStr,
-        descripcion: `Compra de componentes TI - Orden #${Math.floor(Math.random() * 900) + 100}`,
+        descripcion: `Compra a ${descProv} - Orden #${ocId}`,
         tipo: 'salida',
         monto: total
       };
 
-      // Agregar al inicio de la lista y mantener solo los últimos 4 o 5
-      dashboardData.ultimosMovimientos = [newMovement, ...dashboardData.ultimosMovimientos].slice(0, 5);
-
-      // Guardar de vuelta en localStorage
+      dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
       localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
     }
 
-    showToast(`¡Orden por ${formatCurrency(total)} grabada exitosamente!`);
+    showToast(`¡Orden ${ocId} por ${formatCurrency(total)} grabada exitosamente!`);
     
     // Limpiar el formulario
     setProducts([]);

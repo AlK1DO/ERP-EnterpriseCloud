@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Search, Package, Receipt, Users, Trash2, CheckCircle
 } from 'lucide-react';
+import { inventarioService, type Producto } from '../../services/inventarioService';
 
 interface ProductLine {
   id: string;
@@ -27,7 +28,7 @@ export const OrdenVentaPage: React.FC = () => {
   const [selectedCliente, setSelectedCliente] = useState<any>(null);
   const [clienteSearch, setClienteSearch] = useState('');
 
-  // Base de datos simulada de clientes
+  // Clientes locales
   const clientesDB = [
     { nombre: 'Corporación Tecnológica S.A.C.', ruc: '20111111111', condicion: 'Crédito 30 días', tipo: 'Corporativo' },
     { nombre: 'Universidad Nacional Mayor', ruc: '20222222222', condicion: 'Contado', tipo: 'Educación' },
@@ -35,20 +36,14 @@ export const OrdenVentaPage: React.FC = () => {
     { nombre: 'Consultores TI Asociados', ruc: '20444444444', condicion: 'Contado', tipo: 'Servicios' },
     { nombre: 'Julio Yanavelca Yanavilca', ruc: '10748596123', condicion: 'Contado', tipo: 'Persona Natural' },
   ];
+  // Base de datos de productos desde inventarioService
+  const [productDB, setProductDB] = useState<Producto[]>([]);
 
-  // Base de datos de productos persistente en localStorage para descontar stock
-  const [productDB, setProductDB] = useState<any[]>(() => {
-    const cached = localStorage.getItem('erp_products_db');
-    if (cached) return JSON.parse(cached);
-    
-    const initialDB = [
-      { id: '1', codigo: 'LAP-HP450', descripcion: 'Laptop HP ProBook 450 G8 15.6"', precioVenta: 4200.00, stock: 45 },
-      { id: '2', codigo: 'MON-DELL27', descripcion: 'Monitor Dell UltraSharp 27 4K', precioVenta: 1850.00, stock: 30 },
-      { id: '3', codigo: 'TEC-MXM', descripcion: 'Teclado Mecánico Logitech MX', precioVenta: 450.00, stock: 20 },
-    ];
-    localStorage.setItem('erp_products_db', JSON.stringify(initialDB));
-    return initialDB;
-  });
+  useEffect(() => {
+    inventarioService.getProductos().then(prods => {
+      setProductDB(prods);
+    });
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -110,7 +105,7 @@ export const OrdenVentaPage: React.FC = () => {
 
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const handleSaveOrder = () => {
+  const handleSaveOrder = async () => {
     if (products.length === 0) {
       showToast("No puedes grabar una orden vacía. Agrega al menos un producto.");
       return;
@@ -121,27 +116,41 @@ export const OrdenVentaPage: React.FC = () => {
       return;
     }
 
-    // 1. Descontar Stock de los productos y guardar en localStorage
-    const updatedDB = productDB.map(dbProd => {
-      // Sumamos la cantidad de este producto en la orden actual
-      const soldQuantity = products
-        .filter(p => p.codigo === dbProd.codigo)
-        .reduce((acc, curr) => acc + curr.cantidad, 0);
-        
-      if (soldQuantity > 0) {
-        return { ...dbProd, stock: dbProd.stock - soldQuantity };
+    const ovId = `OV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
+
+    // 1. Descontar stock y registrar movimiento en Kardex por cada item
+    for (const prod of products) {
+      const match = productDB.find(p => p.codigo === prod.codigo);
+      if (match) {
+        try {
+          await inventarioService.registrarMovimiento({
+            productoId: match.id,
+            productoCodigo: match.codigo,
+            productoDescripcion: match.descripcion,
+            tipoMovimiento: 'SALIDA',
+            tipoOperacion: 'VENTA',
+            documentoTipo: 'ORDEN DE VENTA',
+            documentoNumero: ovId,
+            detalle: `Salida por venta a ${selectedCliente.nombre}`,
+            almacen: match.almacen || 'Almacén Central',
+            cantidad: prod.cantidad,
+            costoUnitario: match.costoUnitario
+          });
+        } catch (err: any) {
+          showToast(`Error al descontar stock: ${err.message}`);
+          return;
+        }
       }
-      return dbProd;
-    });
-    
-    setProductDB(updatedDB);
-    localStorage.setItem('erp_products_db', JSON.stringify(updatedDB));
+    }
+
+    // Refrescar lista de productos con nuevo stock
+    const prodsActualizados = await inventarioService.getProductos();
+    setProductDB(prodsActualizados);
 
     // 2. Actualizar KPIs y Movimientos en el Dashboard
     const cached = localStorage.getItem('erp_dashboard_data');
     if (cached) {
       const dashboardData = JSON.parse(cached);
-      
       dashboardData.ventasTotales += total;
       
       const today = new Date();
@@ -151,12 +160,12 @@ export const OrdenVentaPage: React.FC = () => {
       const newMovement = {
         id: Date.now(),
         fecha: dateStr,
-        descripcion: `Venta a ${selectedCliente.nombre.substring(0, 15)}... - Orden #${Math.floor(Math.random() * 900) + 100}`,
+        descripcion: `Venta a ${selectedCliente.nombre.substring(0, 15)}... - ${ovId}`,
         tipo: 'ingreso',
         monto: total
       };
 
-      dashboardData.ultimosMovimientos = [newMovement, ...dashboardData.ultimosMovimientos].slice(0, 5);
+      dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
       localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
     }
 

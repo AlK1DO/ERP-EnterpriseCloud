@@ -5,6 +5,9 @@ import { OrdenCompraPage } from './modules/compras/OrdenCompraPage';
 import { OrdenVentaPage } from './modules/ventas/OrdenVentaPage';
 import { FacturacionPage } from './modules/ventas/FacturacionPage';
 import { EstadoCuentaPage } from './modules/ventas/EstadoCuentaPage';
+import { StockProductosPage } from './modules/inventario/StockProductosPage';
+import { IngresoKardexPage } from './modules/inventario/IngresoKardexPage';
+import { MovimientoKardexPage } from './modules/inventario/MovimientoKardexPage';
 
 function App() {
   return (
@@ -16,6 +19,9 @@ function App() {
           <Route path="orden-venta" element={<OrdenVentaPage />} />
           <Route path="facturacion" element={<FacturacionPage />} />
           <Route path="estado-cuenta" element={<EstadoCuentaPage />} />
+          <Route path="ingreso-kardex" element={<IngresoKardexPage />} />
+          <Route path="movimiento-kardex" element={<MovimientoKardexPage />} />
+          <Route path="stock-productos" element={<StockProductosPage />} />
           
           {/* Catch-all para módulos en construcción */}
           <Route path="*" element={

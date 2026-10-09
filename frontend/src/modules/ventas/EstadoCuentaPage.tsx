@@ -3,16 +3,18 @@ import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Download, Printer, Search, FileBarChart } from 'lucide-react';
 
-const DUMMY_DATA = [
-  { tipo: 'FACTURA ELECTRÓNICA', fecha: '08/06/2026 19:09', nro: 'F001-0003340', razonSocial: 'Corporación Tecnológica S.A.C.', productos: '4x Monitor Dell 4K, 2x Teclado', vendedor: 'Leonel Davis', estado: 'CANCELADO', total: 8250, saldo: 0, pagado: 8250 },
-  { tipo: 'FACTURA ELECTRÓNICA', fecha: '07/06/2026 19:09', nro: 'F001-0003341', razonSocial: 'Universidad Nacional Mayor', productos: '10x Mouse Inalámbrico, 5x Auriculares', vendedor: 'María López', estado: 'PENDIENTE', total: 4500, saldo: 4500, pagado: 0 },
-  { tipo: 'BOLETA DE VENTA ELECTRÓNICA', fecha: '05/06/2026 18:22', nro: 'B001-0003342', razonSocial: 'Julio Yanavelca Yanavilca', productos: '1x Laptop HP ProBook, 1x Mochila', vendedor: 'Carlos Ruiz', estado: 'PENDIENTE', total: 2408, saldo: 1000, pagado: 1408 },
-  { tipo: 'FACTURA ELECTRÓNICA', fecha: '02/06/2026 09:41', nro: 'F001-0003343', razonSocial: 'Tech Solutions E.I.R.L.', productos: '2x Disco Duro 1TB, 1x RAM 16GB', vendedor: 'Leonel Davis', estado: 'CANCELADO', total: 1200, saldo: 0, pagado: 1200 },
-  { tipo: 'PROFORMA DE VENTA', fecha: '05/06/2026 18:22', nro: 'PROF-2026-0046', razonSocial: 'Corporación Tecnológica S.A.C.', productos: '1x Servidor HP ProLiant', vendedor: 'María López', estado: 'CANCELADO', total: 3500, saldo: 0, pagado: 3500 },
-  { tipo: 'PROFORMA DE VENTA', fecha: '02/06/2026 09:41', nro: 'PROF-2026-0047', razonSocial: 'Universidad Nacional Mayor', productos: '2x Proyector Epson, 1x Pantalla', vendedor: 'Carlos Ruiz', estado: 'PENDIENTE', total: 2800, saldo: 2800, pagado: 0 },
-  { tipo: 'BOLETA DE VENTA ELECTRÓNICA', fecha: '01/06/2026 10:15', nro: 'B001-0005421', razonSocial: 'Julio Yanavelca Yanavilca', productos: '1x Laptop HP ProBook 450', vendedor: 'Leonel Davis', estado: 'PENDIENTE', total: 2408, saldo: 2408, pagado: 0 },
-  { tipo: 'FACTURA ELECTRÓNICA', fecha: '02/06/2026 11:30', nro: 'F001-0005422', razonSocial: 'Tech Solutions E.I.R.L.', productos: '3x Monitor LG 24", 3x Teclado', vendedor: 'María López', estado: 'CANCELADO', total: 5600, saldo: 0, pagado: 5600 },
-];
+export interface ItemEstadoCuenta {
+  tipo: string;
+  fecha: string;
+  nro: string;
+  razonSocial: string;
+  productos: string;
+  vendedor: string;
+  estado: string;
+  total: number;
+  saldo: number;
+  pagado: number;
+}
 
 export const EstadoCuentaPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
@@ -21,10 +23,17 @@ export const EstadoCuentaPage: React.FC = () => {
   const [dateStart, setDateStart] = useState('2026-04-01');
   const [dateEnd, setDateEnd] = useState('2026-06-30');
 
-  const [allData, setAllData] = useState(() => {
+  const [allData, setAllData] = useState<ItemEstadoCuenta[]>(() => {
     const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
-    const localCuenta = cachedCuenta ? JSON.parse(cachedCuenta) : [];
-    return [...localCuenta, ...DUMMY_DATA];
+    if (cachedCuenta) {
+      try {
+        const localCuenta = JSON.parse(cachedCuenta);
+        return Array.isArray(localCuenta) ? localCuenta : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
   });
 
   // Filtramos la data en tiempo real
@@ -38,7 +47,7 @@ export const EstadoCuentaPage: React.FC = () => {
 
   // Agrupamos por tipo de documento
   const groupedData = useMemo(() => {
-    const groups: Record<string, typeof DUMMY_DATA> = {};
+    const groups: Record<string, ItemEstadoCuenta[]> = {};
     filteredData.forEach(item => {
       if (!groups[item.tipo]) groups[item.tipo] = [];
       groups[item.tipo].push(item);
