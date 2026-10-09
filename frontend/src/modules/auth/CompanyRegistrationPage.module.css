@@ -1,0 +1,7 @@
+.requiredNote { margin: 0 0 20px; font-size: 12px; color: #667085; }
+.optional { color: #667085; font-weight: 400; }
+.help { margin: 7px 0 0; font-size: 11px; line-height: 1.6; color: #667085; }
+.storageError { margin: 0 0 16px; padding: 12px; border: 1px solid #f3c6be; border-radius: 10px; background: #fff5f3; font-size: 13px; line-height: 1.6; color: #b42318; overflow-wrap: anywhere; }
+.exitButton { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid #d8dde5; border-radius: 10px; background: #fff; color: #596579; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.exitButton:hover { background: #f3f4f6; color: #263041; }
+.exitButton:focus-visible { outline: 3px solid #b33a10; outline-offset: 3px; }

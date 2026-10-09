@@ -1,0 +1,19 @@
+# Autenticación y registro de empresa
+
+ERP Senatinos utiliza Supabase Auth real mediante el cliente compartido de `src/lib/supabase.ts`. El registro público envía nombre, correo y contraseña al SDK; no envía un rol ni guarda contraseñas. La pantalla mantiene el diseño original y añade confirmación de contraseña y mensajes de validación.
+
+`AuthProvider` restaura la sesión, consulta `auth.getUser()` y comprueba confirmación de correo. Después lee `erp_senatinos_profiles` y su relación protegida con `roles`. Un perfil ausente, un rol inactivo/desconocido o un fallo de consulta bloquea el ERP, sin fallback a administrador. `AuthContext` comparte el estado y las acciones con las rutas. Mientras se resuelven sesión, perfil y empresa no se monta el dashboard.
+
+`/registro` crea cuentas de Cliente. Si el registro no devuelve sesión, muestra «Revisa tu correo para activar tu cuenta» y permite reenviar el correo. `/auth/callback` acepta token hash de correo o código PKCE y elimina los parámetros del historial después de que Supabase procese el retorno. El callback no acepta redirecciones externas proporcionadas por el usuario.
+
+`/login` inicia sesión mediante contraseña o Google; `/registro` también permite crear una cuenta con Google. OAuth redirige al origen actual y Supabase procesa el retorno automáticamente (`detectSessionInUrl` y `persistSession` activados). El perfil y rol se consultan desde `erp_senatinos_profiles` y `roles`; el selector Cliente/Administrador solo cambia la presentación, y el cliente no envía un rol. Los usuarios nuevos reciben `client` mediante el trigger de base de datos. El SDK conserva y renueva los tokens, nunca la contraseña. Cerrar sesión usa `auth.signOut({ scope: 'local' })`, bloquea la navegación y conserva la empresa. Los errores del SDK se traducen a mensajes fijos en español, sin imprimir credenciales ni detalles internos.
+
+`/registro-empresa` es obligatorio para clientes sin empresa. El formulario conserva los campos si falla la escritura. La persistencia usa `erp_senatinos_companies` y el servidor asigna el propietario con `auth.uid()`. El frontend no inserta un propietario elegido por el usuario. Un cliente con empresa entra directamente; administrador no pasa por el formulario. La cabecera muestra el nombre comercial o la razón social.
+
+El flujo de demostración fue eliminado. Sus antiguas claves de sessionStorage/localStorage se ignoran: no permiten iniciar sesión, no se importan y sus datos no se borran. `/login-preview.html` conserva una vista únicamente visual sin capacidad de entrada. El diagnóstico de Supabase usa configuración compartida sin inicializar Auth.
+
+La migración fue preparada tras revisar el inventario existente. Reutiliza `public.roles` y conserva `usuarios` bigint, sus relaciones y los datos comerciales. No se ejecutó contra Supabase. Consulta los pasos exactos, la migración, la configuración de correo y el procedimiento privado de administrador en [supabase/README.md](../../../../supabase/README.md).
+
+Los módulos comerciales siguen utilizando localStorage y sus registros continúan compartidos por navegador, sin aislamiento por empresa. Este cambio no los convierte en aptos para clientes reales.
+
+Pruebas ejecutadas: compilación y lint; navegador con respuestas Auth/REST interceptadas para registro, confirmación, validaciones, contraseña incorrecta, sesión no confirmada, recarga, renovación, cierre/Atrás, persistencia de empresa, errores de guardado, rechazo de rol por selector/metadatos y bloqueo por perfil ausente. No se enviaron correos ni se crearon cuentas remotas; no se verificó RLS real. La verificación con cuentas propias y correo real queda pendiente después de aplicar SQL y configurar SMTP.
