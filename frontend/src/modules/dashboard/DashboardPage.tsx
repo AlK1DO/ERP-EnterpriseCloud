@@ -3,12 +3,14 @@ import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   TrendingUp, TrendingDown, AlertCircle, ShoppingCart, 
-  DollarSign, Percent, Download, RefreshCw, AlertTriangle
+  DollarSign, Percent, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface DashboardData {
   ventasTotales: number;
@@ -20,6 +22,7 @@ interface DashboardData {
   areaChartData: any[];
   pieData: any[];
   stockList: any[];
+  ultimosMovimientos: any[];
 }
 
 export const DashboardPage: React.FC = () => {
@@ -55,6 +58,12 @@ export const DashboardPage: React.FC = () => {
       { id: 1, name: 'Pelicula polipropileno 1.2mm', sku: 'PP-1200 - Central', current: 128, min: 500 },
       { id: 2, name: 'Gránulo ABS virgen 25kg', sku: 'ABS-25 - Planta', current: 46, min: 200 },
       { id: 3, name: 'Pelicula stretch industrial 25mm', sku: 'PEL-001 - Planta', current: 40, min: 1200 },
+    ],
+    ultimosMovimientos: [
+      { id: 1, fecha: '08 Jun 2026', descripcion: 'Ingreso de mercadería - Fac #4402', tipo: 'ingreso', monto: 12500.00 },
+      { id: 2, fecha: '07 Jun 2026', descripcion: 'Pago a proveedor - Plastix SAC', tipo: 'salida', monto: 4200.50 },
+      { id: 3, fecha: '07 Jun 2026', descripcion: 'Venta corporativa - Grupo Rey', tipo: 'ingreso', monto: 35000.00 },
+      { id: 4, fecha: '06 Jun 2026', descripcion: 'Compra de insumos - Orden #102', tipo: 'salida', monto: 8300.00 },
     ]
   };
 
@@ -66,8 +75,8 @@ export const DashboardPage: React.FC = () => {
       const cached = localStorage.getItem('erp_dashboard_data');
       if (cached) {
         const parsedData = JSON.parse(cached);
-        // Si la data en caché es de una versión anterior y no tiene pieData, usamos la data inicial y actualizamos el caché
-        if (!parsedData.pieData) {
+        // Verificar integridad del caché
+        if (!parsedData.pieData || !parsedData.ultimosMovimientos) {
           localStorage.setItem('erp_dashboard_data', JSON.stringify(initialData));
           setData(initialData);
         } else {
@@ -86,10 +95,10 @@ export const DashboardPage: React.FC = () => {
   const handleRefresh = () => {
     setLoading(true);
     setTimeout(() => {
-      // Generate randomized data for a more realistic refresh
-      const factor = () => 0.8 + Math.random() * 0.4; // +/- 20% variation
+      const factor = () => 0.8 + Math.random() * 0.4;
       
       const newData = {
+        ...data!,
         ventasTotales: data!.ventasTotales * factor(),
         comprasTotales: data!.comprasTotales * factor(),
         ctasPendientes: data!.ctasPendientes * factor(),
@@ -98,13 +107,58 @@ export const DashboardPage: React.FC = () => {
         chartData: data!.chartData.map(d => ({ ...d, Ventas: d.Ventas * factor(), Compras: d.Compras * factor() })),
         areaChartData: data!.areaChartData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
         pieData: data!.pieData.map(d => ({ ...d, value: Math.floor(d.value * factor()) })),
-        stockList: data!.stockList.map(item => ({ ...item, current: Math.floor(item.current * factor()) }))
+        stockList: data!.stockList.map(item => ({ ...item, current: Math.floor(item.current * factor()) })),
+        ultimosMovimientos: data!.ultimosMovimientos.map(item => ({ ...item, monto: item.monto * factor() }))
       };
 
       localStorage.setItem('erp_dashboard_data', JSON.stringify(newData));
       setData(newData);
       setLoading(false);
     }, 600);
+  };
+
+  const handleExportPDF = () => {
+    if (!data) return;
+    const doc = new jsPDF();
+    
+    // Título
+    doc.setFontSize(20);
+    doc.text('ERP SENATINO - Resumen Operativo', 14, 22);
+    
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text('Periodo: Junio 2026', 14, 30);
+    
+    // KPIs
+    autoTable(doc, {
+      startY: 40,
+      head: [['Métrica', 'Valor', 'Detalle']],
+      body: [
+        ['Ventas Totales', formatCurrency(data.ventasTotales), 'Acumulado del mes'],
+        ['Compras Totales', formatCurrency(data.comprasTotales), 'Órdenes de compra'],
+        ['Cuentas Pendientes', formatCurrency(data.ctasPendientes), 'Cuentas por cobrar'],
+        ['Stock Crítico', `${data.stockBajo} SKU`, 'Requieren reposición urgente'],
+        ['Margen Bruto', `${data.margen}%`, 'Margen promedio estimado']
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [29, 78, 216] } // blue-700
+    });
+    
+    // Movimientos
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 15,
+      head: [['Fecha', 'Descripción', 'Tipo', 'Monto']],
+      body: data.ultimosMovimientos.map(m => [
+        m.fecha, 
+        m.descripcion, 
+        m.tipo.toUpperCase(), 
+        formatCurrency(m.monto)
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [29, 78, 216] }
+    });
+
+    doc.save('resumen_erp_senatino.pdf');
   };
 
   const containerVariants = {
@@ -147,9 +201,9 @@ export const DashboardPage: React.FC = () => {
             <RefreshCw size={16} />
             Actualizar
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/20">
+          <button onClick={handleExportPDF} className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/20">
             <Download size={16} />
-            Exportar Resumen
+            Exportar PDF
           </button>
         </div>
       </div>
@@ -157,7 +211,7 @@ export const DashboardPage: React.FC = () => {
       {/* KPI Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         
-        {/* Main Kpi - Ventas del Periodo (Spans 2 columns) */}
+        {/* Main Kpi - Ventas del Periodo */}
         <motion.div variants={itemVariants} className={`col-span-1 lg:col-span-2 p-5 rounded-2xl border ${darkMode ? 'bg-gradient-to-br from-blue-900/40 to-slate-900 border-blue-500/20' : 'bg-white border-blue-100 shadow-sm'}`}>
           <div className="flex justify-between items-start mb-2">
             <p className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>Ventas del Periodo</p>
@@ -336,6 +390,51 @@ export const DashboardPage: React.FC = () => {
               Posponer
             </button>
           </div>
+        </div>
+      </motion.div>
+
+      {/* Ultimos Movimientos */}
+      <motion.div variants={itemVariants} className={`rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={`px-6 py-4 border-b flex justify-between items-center ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+          <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Últimos movimientos</h3>
+          <button onClick={handleExportPDF} className={`text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            Exportar
+          </button>
+        </div>
+        <div className="p-0">
+          <table className="w-full text-left text-sm">
+            <thead className={`text-xs ${darkMode ? 'bg-slate-800/50 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
+              <tr>
+                <th className="px-6 py-3 font-medium border-b border-inherit">Fecha</th>
+                <th className="px-6 py-3 font-medium border-b border-inherit">Descripción</th>
+                <th className="px-6 py-3 font-medium border-b border-inherit">Tipo</th>
+                <th className="px-6 py-3 font-medium text-right border-b border-inherit">Monto</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-inherit">
+              {data.ultimosMovimientos.map((mov) => (
+                <tr key={mov.id} className={`transition-colors ${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'}`}>
+                  <td className={`px-6 py-4 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{mov.fecha}</td>
+                  <td className={`px-6 py-4 font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{mov.descripcion}</td>
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
+                      mov.tipo === 'ingreso' 
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' 
+                        : 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'
+                    }`}>
+                      {mov.tipo === 'ingreso' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                      {mov.tipo.charAt(0).toUpperCase() + mov.tipo.slice(1)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right font-medium">
+                    <span className={mov.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                      {mov.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(mov.monto)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </motion.div>
 
