@@ -8,7 +8,7 @@ import type { AuthState } from './AuthContext';
 const emptyState: AuthState = { phase: 'loading', user: null, role: null, company: null, error: null };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>(() => supabase ? emptyState : { ...emptyState, phase: 'error', error: 'Falta configurar Supabase. Completa las variables y reinicia Vite.' });
+  const [state, setState] = useState<AuthState>(() => supabase ? emptyState : { ...emptyState, phase: 'error', error: 'Falta configurar Supabase con una URL y una clave pública publishable válidas. Completa las variables y reinicia Vite.' });
   const generation = useRef(0);
   const refreshRef = useRef<() => Promise<void>>(async () => undefined);
 
@@ -27,6 +27,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       let user: User | null = null;
+      const timeout = setTimeout(() => {
+        if (alive && generation.current === ticket) {
+          generation.current++;
+          setState({ ...emptyState, phase: 'error', error: 'La validación tardó demasiado. Revisa la conexión y vuelve a intentarlo.' });
+        }
+      }, 20000);
+      timers.add(timeout);
       try {
         // Validate the persisted token with the Auth server before granting UI access.
         const { data, error } = await client.auth.getUser();
@@ -43,6 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         update({ phase: 'ready', user, role: assignedRole.nombre, company: companyResult.company, error: null }, ticket);
       } catch {
         update({ ...emptyState, phase: 'error', user, error: 'No se pudo validar la sesión o consultar el perfil protegido. Confirma tu correo y revisa la conexión y las migraciones de Supabase. No se concederá acceso mientras falle esta verificación.' }, ticket);
+      } finally {
+        clearTimeout(timeout);
+        timers.delete(timeout);
       }
     }
     function schedule(session: Session | null) {
@@ -105,4 +115,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return <AuthContext.Provider value={{ ...state, refresh: () => refreshRef.current(), signOut }}>{children}</AuthContext.Provider>;
 }
-

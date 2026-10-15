@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MailCheck } from 'lucide-react';
-import { completeConfirmation } from './authApi';
+import { completeConfirmation, googleOAuthRedirectError } from './authApi';
 import { AuthFrame } from './AuthFrame';
 import styles from './LoginPage.module.css';
 
@@ -11,6 +11,11 @@ export function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
+    const oauthError = googleOAuthRedirectError(params);
+    if (oauthError) {
+      navigate(`/login?google=${oauthError}`, { replace: true });
+      return;
+    }
     void completeConfirmation(params).then(message => {
       if (!active) return;
       // Let Supabase detect and exchange URL credentials before removing them.

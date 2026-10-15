@@ -77,11 +77,11 @@ El SDK guarda y renueva tokens de sesión; el código de aplicación no almacena
 
 Los módulos comerciales conservan su lógica y todavía usan localStorage: sus registros siguen compartidos en el navegador, sin aislamiento por empresa. La autenticación y el RLS de las nuevas empresas **no convierten esa parte en una solución lista para clientes reales**. Su migración requiere otro alcance.
 
-Se ejecutaron compilación y lint. En Chrome con respuestas Auth/REST interceptadas se comprobaron registro, validaciones, ausencia de rol en signup, confirmación por token hash sin sesión previa, rechazo de contraseña incorrecta/no confirmada, limpieza de URL, recarga, renovación mediante refresh token, cierre/Atrás, registro obligatorio de empresa, conservación de campos ante un rechazo de guardado y rechazo del propietario incoherente. Se comprobó que seleccionar Administrador o tener `user_metadata.role=admin` no eleva un perfil de servidor `client`, y que un perfil ausente bloquea la aplicación. Se revisó la presentación móvil de registro.
+La rama de autenticación documentó previamente pruebas de interfaz con respuestas Auth/REST interceptadas. En esta fusión no se repitieron pruebas en navegador ni se inició sesión contra un proyecto remoto. La verificación automatizada realizada para esta integración fue: `npm.cmd test` (71 pruebas correctas), `npm.cmd run build` (correcto, con advertencia por bundle mayor de 500 kB) y `npm.cmd run lint` (sin errores; advertencias existentes en algunas pantallas).
 
 **No se han ejecutado** migraciones, asignaciones de administrador, creación de cuentas remotas, envío/recepción de confirmación real, ni pruebas de RLS contra dos usuarios reales. La entrega prepara el flujo; esas pruebas requieren aplicar el SQL, SMTP y cuentas propias autorizadas.
 
-La única consulta remota adicional fue GET `/auth/v1/settings`, con `apikey` y sin Bearer: HTTP 200, `disable_signup=false`, proveedor Email habilitado y `mailer_autoconfirm=false` (confirmación requerida). Estos indicadores públicos no permiten comprobar SMTP, Site URL ni redirecciones autorizadas; se deben revisar en el Dashboard.
+No se consultó el proyecto Supabase remoto durante esta fusión. La configuración de SMTP, Site URL, proveedores y redirecciones debe revisarse en el Dashboard del proyecto destino.
 
 ### Prueba real pendiente
 
@@ -95,3 +95,71 @@ Con dos cuentas propias A y B, después de configurar Supabase:
 - Ejecutar la asignación privada de administrador únicamente para tu cuenta elegida y verificar su nuevo flujo.
 
 Si un indicador o prueba falla, detener la prueba y revisar grants/políticas; no ampliarlos para hacerla pasar. No usar ni compartir contraseñas o tokens en archivos de pruebas ni capturas.
+## Configuración del frontend integrado
+
+Se reutilizaron las pantallas y el contrato de datos del proyecto de referencia, sin modificarlo. No se copiaron secretos, archivos de entorno, node_modules ni dist. No se ejecutaron migraciones, despliegues, asignaciones de administrador ni push.
+
+## Configurar el frontend
+
+Desde `frontend`, crear o editar `.env.local` (está ignorado por Git) con la URL del proyecto y su clave pública publishable. El cliente utiliza exclusivamente `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Nunca usar claves secretas, service_role ni credenciales SQL en variables VITE. Reiniciar Vite tras cambiar el entorno.
+
+```dotenv
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_<clave-publicable>
+```
+
+```powershell
+cd C:\Users\Home\ERP-EnterpriseCloud\frontend
+if (-not (Test-Path .env.local)) { New-Item -ItemType File .env.local }
+npm.cmd install
+npm.cmd run dev
+```
+
+## Revisar el esquema antes de aplicar SQL
+
+No se conoce el esquema remoto del proyecto destino ni se supone que la migración esté aplicada. `inspect-schema.sql` y `verify-auth-security.sql` son consultas de catálogo de solo lectura; quedan disponibles para una revisión autorizada.
+
+La migración `migrations/20261008_auth_companies.sql` procede de la referencia y está PREPARADA, NO EJECUTADA. Depende de las tablas preexistentes `public.roles` y `public.usuarios`, con los campos y tipos esperados por el SQL. No es una instalación genérica para una base vacía. Aborta si las nuevas tablas ya existen, si roles tiene políticas o si los roles canónicos están inactivos. Si el esquema difiere, se requiere adaptar la migración antes de autorizar su ejecución.
+
+Atención: además de crear perfiles y empresas, revoca permisos API sobre la tabla compartida roles y crea una política para leer solo el rol propio. Revisar su impacto en cualquier otra aplicación que utilice esa tabla; no ejecutar a ciegas. Tampoco se debe crear una política permisiva adicional para solucionar errores de acceso.
+
+El contrato del frontend es:
+
+- `erp_senatinos_profiles`: `user_id` UUID de Auth, `rol_id` y `full_name`.
+- Relación `roles!fk_erp_profiles_roles(nombre,activo)`: solo `client` y `admin` activos habilitan acceso.
+- `erp_senatinos_companies`: una empresa por `user_id`, con `ruc`, `legal_name`, `fiscal_address`, `trade_name`, `phone` y `email`.
+
+La revisión estática del SQL muestra: perfiles propios de solo lectura para authenticated; sin grants para modificar perfiles o roles; trigger que asigna siempre client e ignora roles de metadatos; empresa con propietario definido por auth.uid(), grants que excluyen user_id y políticas de escritura solo para el cliente propietario. Administradores no reciben acceso a empresas ajenas. Estas observaciones NO verifican las políticas aplicadas en una base real.
+
+No se asignó administrador ni se incluyó un flujo de elevación de privilegios. Un administrador debe estar previamente asignado mediante un procedimiento privado autorizado. Como en la referencia, entra sin registro de empresa. No se implementó administración global ni selección de empresas ajenas.
+
+## Correo, retornos y Google
+
+1. Habilitar Email y registro público en Authentication. Mantener Confirm email habilitado y configurar longitud mínima de contraseña de al menos 8 caracteres.
+2. Establecer Site URL a `http://localhost:5173` durante desarrollo. Autorizar `http://localhost:5173/auth/callback`. Si se usa 127.0.0.1, autorizar también su callback exacto y usar ese mismo origen durante todo el flujo PKCE.
+3. En producción, usar el origen HTTPS real y autorizar su `/auth/callback` exacto. El hosting debe servir index.html en rutas SPA. No se realizó despliegue.
+4. Configurar SMTP dentro de Supabase para entrega de correo; sus credenciales nunca pertenecen al frontend. Comprobar remitente, límites y entrega.
+5. El enlace estándar PKCE requiere el navegador que inició el registro. Para permitir confirmar en otro navegador, revisar una plantilla Confirm signup con el enlace `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=email`. La página procesa token_hash mediante verifyOtp y deja que el SDK procese códigos PKCE; limpia los parámetros después del retorno.
+6. Para Google, habilitar el proveedor en Supabase y configurar su client ID y client secret allí. En Google Cloud registrar como redirect URI el callback de Supabase indicado por el Dashboard, habitualmente `https://TU-PROYECTO.supabase.co/auth/v1/callback`. El retorno de Supabase a la aplicación utiliza `/auth/callback`, autorizado en el paso 2. Los secretos de Google no van en VITE.
+
+Referencias oficiales: [retornos autorizados](https://supabase.com/docs/guides/auth/redirect-urls), [Google](https://supabase.com/docs/guides/auth/social-login/auth-google), [PKCE](https://supabase.com/docs/guides/auth/sessions/pkce-flow), [eventos de sesión](https://supabase.com/docs/reference/javascript/auth-onauthstatechange).
+
+## Acceso, rutas y datos locales
+
+Sin sesión se redirige a login. Mientras se valida usuario confirmado, perfil, rol y empresa, no se monta el ERP. Los errores bloquean acceso y ofrecen reintento o cierre. Los resultados obsoletos de validaciones se ignoran mediante generaciones. Los eventos del SDK disparan validación fuera de su callback. El SDK restaura y renueva tokens; no se almacenan contraseñas. Un timeout de validación evita mantener indefinidamente la carga en consultas de cuenta.
+
+El selector Cliente/Administrador es visual. El rol real viene de la relación protegida en la base. Clientes sin empresa van a registro-empresa; con empresa entran al ERP. Reportes, mantenimientos, usuarios, roles, permisos y auditoría requieren admin tanto por ruta como por menú; siguen siendo módulos en desarrollo. Las rutas comerciales existentes (panel, clientes, proveedores, cotizaciones, ventas, compras, facturación, estado de cuenta e inventario/Kardex) se mantienen dentro de la sesión protegida.
+
+El layout y las páginas se desmontan al bloquear la sesión y se montan por identidad, descartando su estado en memoria al cambiar de usuario. No se borran, migran ni atribuyen los datos de localStorage. Las funciones comerciales y sus cálculos permanecen intactos.
+
+IMPORTANTE: los registros comerciales siguen compartidos por navegador, sin aislamiento por usuario o empresa. Otra cuenta que use el mismo navegador puede consultar esos registros después de autenticarse. Esta entrega NO es apta para uso multiempresa. El trabajo posterior requiere un modelo de pertenencia, almacenamiento servidor, políticas RLS y una importación explícita y autorizada de los datos existentes; no se asignan automáticamente a la primera cuenta.
+
+## Verificación
+
+`npm.cmd test`: pruebas unitarias de la política de acceso para sesiones ausentes, carga, errores, perfil inválido, clientes con/sin empresa, administrador y rechazo de elevación por metadatos. También se prueban mensajes de credenciales incorrectas/correo no confirmado. Son pruebas de lógica, no inicios de sesión reales ni pruebas de navegador.
+
+`npm.cmd run build`: TypeScript y compilación Vite. `npm.cmd run lint`: revisión estática. La compilación no demuestra que los flujos remotos funcionen. Las pruebas manuales de navegador enumeradas arriba requieren una sesión y proyecto Supabase de prueba autorizados.
+
+Pendiente de comprobación manual con configuración real: login incorrecto/correcto, correo sin confirmar, registro y reenvío, recepción y callback de confirmación, Google y cancelación, perfil ausente, rol inválido/inactivo, clientes con/sin empresa, administrador, acceso directo a rutas administrativas, recarga, renovación, cierre/Atrás y comportamiento responsive/tema oscuro. No se realizaron pruebas de navegador en esta integración.
+
+Con dos cuentas propias, comprobar que B no puede leer/modificar perfil o empresa de A, que no puede actualizar roles o su rol_id, y que metadatos editables no elevan permisos. Estas pruebas deben usar sesiones ordinarias, nunca una clave privilegiada. Migraciones y pruebas que creen cuentas remotas requieren autorización.

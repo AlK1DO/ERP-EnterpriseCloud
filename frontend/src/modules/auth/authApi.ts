@@ -16,7 +16,7 @@ export async function signInWithGoogle(): Promise<string | null> {
   try {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: new URL('/', window.location.origin).href },
+      options: { redirectTo: confirmationRedirectUrl() },
     });
     return error ? `No se pudo iniciar sesión con Google. ${authErrorMessage(error)}` : null;
   } catch (error) {

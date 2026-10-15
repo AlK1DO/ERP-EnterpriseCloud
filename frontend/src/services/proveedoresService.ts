@@ -39,9 +39,13 @@ const mockInicialProveedores: Proveedor[] = [
 ];
 
 export const proveedoresService = {
-  getProveedores: async (): Promise<Proveedor[]> => {
+  getProveedores: async (options: { initializeIfEmpty?: boolean } = {}): Promise<Proveedor[]> => {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY_PROVEEDORES);
     if (!data) {
+      if (options.initializeIfEmpty === false) {
+        if (data !== null) throw new Error('Los datos de proveedores no son válidos.');
+        return [];
+      }
       localStorage.setItem(LOCAL_STORAGE_KEY_PROVEEDORES, JSON.stringify(mockInicialProveedores));
       return mockInicialProveedores;
     }

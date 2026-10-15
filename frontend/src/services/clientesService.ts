@@ -27,57 +27,46 @@ export interface Cliente extends ClienteFormData {
 
 const LOCAL_STORAGE_KEY = 'erp_enterprise_clientes';
 
-// Datos iniciales de prueba (se guardarán en localStorage si está vacío)
-const mockInicial: Cliente[] = [
-  { 
-    id: '1', tipo_persona: 'JURIDICA', nombre: 'Acme Corp', documento: '20123456789', 
-    email: 'contacto@acme.com', telefono: '987654321', direccion: 'Av. Siempre Viva 123', 
-    limite_credito: 5000, estado: 'Activo', fecha_registro: new Date().toISOString(),
-    historial: [
-      { id: 'h1', fecha: new Date().toISOString(), accion: 'Creación', detalle: 'Cliente registrado en el sistema.' }
-    ]
-  },
-  { 
-    id: '3', tipo_persona: 'NATURAL', nombre: 'Jordan Rojas B', documento: '70646686', 
-    email: 'jordan@gmail.com', telefono: '986182856', direccion: 'Calle Falsa 456', 
-    limite_credito: 0, estado: 'Inactivo', dias_inactivo: 45, fecha_registro: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
-    historial: [
-      { id: 'h2', fecha: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(), accion: 'Creación', detalle: 'Cliente registrado.' },
-      { id: 'h3', fecha: new Date().toISOString(), accion: 'Suspensión', detalle: 'Cuenta marcada como inactiva por falta de operaciones.' }
-    ]
-  },
-];
-
+// Ya no se crean ejemplos automáticamente. Los registros existentes se conservan.
+function validateClientForm(data: ClienteFormData) {
+  if (typeof data.nombre !== 'string' || !data.nombre.trim() || typeof data.documento !== 'string' || !(data.tipo_persona === 'JURIDICA' ? /^\d{11}$/ : data.tipo_persona === 'NATURAL' ? /^(\d{8}|\d{11})$/ : /a^/).test(data.documento)) throw new Error('Completa nombre y documento válidos (RUC de 11 dígitos o DNI de 8 para persona natural).');
+  if (!Number.isFinite(data.limite_credito) || data.limite_credito < 0) throw new Error('El límite de crédito debe ser numérico y no negativo.');
+}
+function saveClientsWithBackup(clientes: Cliente[]) {
+  localStorage.setItem(`erp_respaldo_clientes_${crypto.randomUUID()}`, JSON.stringify({ key: LOCAL_STORAGE_KEY, original: localStorage.getItem(LOCAL_STORAGE_KEY) }));
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientes));
+}
 export const clientesService = {
   // Obtener clientes desde localStorage
   getClientes: async (): Promise<Cliente[]> => {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!data) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mockInicial));
-      return mockInicial;
-    }
-    return JSON.parse(data);
+    if (data === null) return [];
+    const clientes = JSON.parse(data);
+    if (!Array.isArray(clientes) || clientes.some(c => !c || typeof c !== 'object' || Array.isArray(c))) throw new Error('Los registros de clientes no son válidos; no se reemplazaron.');
+    return clientes;
   },
 
   // Crear un nuevo cliente y guardarlo en localStorage
   createCliente: async (cliente: ClienteFormData): Promise<Cliente> => {
+    validateClientForm(cliente);
     await new Promise(resolve => setTimeout(resolve, 800));
     const clientesActuales = await clientesService.getClientes();
     const nuevoCliente: Cliente = {
       ...cliente,
-      id: Math.random().toString(36).substr(2, 9),
+      id: crypto.randomUUID(),
       estado: 'Activo',
       dias_inactivo: 0,
       fecha_registro: new Date().toISOString(),
       historial: [{ id: Math.random().toString(36).substr(2, 9), fecha: new Date().toISOString(), accion: 'Creación', detalle: 'Cliente registrado en el sistema.' }]
     };
     clientesActuales.push(nuevoCliente);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientesActuales));
+    saveClientsWithBackup(clientesActuales);
     return nuevoCliente;
   },
 
   // Actualizar un cliente existente
   updateCliente: async (id: string, clienteData: ClienteFormData): Promise<Cliente> => {
+    validateClientForm(clienteData);
     await new Promise(resolve => setTimeout(resolve, 600));
     const clientes = await clientesService.getClientes();
     const index = clientes.findIndex(c => c.id === id);
@@ -87,7 +76,7 @@ export const clientesService = {
       ...clientes[index],
       ...clienteData,
       historial: [
-        ...clientes[index].historial,
+        ...(clientes[index].historial ?? []),
         {
           id: Math.random().toString(36).substr(2, 9),
           fecha: new Date().toISOString(),
@@ -98,7 +87,7 @@ export const clientesService = {
     };
 
     clientes[index] = clienteActualizado;
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientes));
+    saveClientsWithBackup(clientes);
     return clienteActualizado;
   },
 
@@ -107,7 +96,7 @@ export const clientesService = {
     await new Promise(resolve => setTimeout(resolve, 400));
     let clientes = await clientesService.getClientes();
     clientes = clientes.filter(c => c.id !== id);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientes));
+    saveClientsWithBackup(clientes);
   },
 
   // Consultar RUC externamente usando OpenRUC
