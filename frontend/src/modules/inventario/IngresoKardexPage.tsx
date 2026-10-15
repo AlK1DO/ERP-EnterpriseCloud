@@ -1,198 +1,97 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Package, Plus, Trash2, CheckCircle, Search, 
-  FileText, ArrowDownLeft, Building2, ShoppingBag, ArrowRight
+  Plus, Trash2, CheckCircle, ShoppingBag, ArrowRight
 } from 'lucide-react';
-import { inventarioService, type Producto } from '../../services/inventarioService';
+import type { Producto } from '../../services/inventarioService';
 import { proveedoresService, type Proveedor } from '../../services/proveedoresService';
-
-interface ItemIngreso {
-  id: string;
-  productoId: string;
-  codigo: string;
-  descripcion: string;
-  almacen: string;
-  cantidad: number;
-  costoUnitario: number;
-  total: number;
-}
+import { orderReceiptItems, pendingPurchaseOrders, persistReception, readReceptionData, receiptSupplier } from '../../services/receptionService';
+import type { ReceiptItem } from '../../services/receptionService';
+import { recoverInventoryTransaction, withInventoryLock } from '../../services/inventoryTransaction';
 
 export const IngresoKardexPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const navigate = useNavigate();
-
   const [productos, setProductos] = useState<Producto[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
-  const [ordenesCompra, setOrdenesCompra] = useState<any[]>([]);
-
-  // Formulario cabecera
+  const [source, setSource] = useState<ReturnType<typeof readReceptionData> | null>(null);
   const [tipoOperacion, setTipoOperacion] = useState<'COMPRA' | 'INGRESO_AJUSTE' | 'DEVOLUCION'>('COMPRA');
   const [documentoTipo, setDocumentoTipo] = useState('GUÍA DE REMISIÓN');
   const [documentoNumero, setDocumentoNumero] = useState('');
   const [selectedProveedorId, setSelectedProveedorId] = useState('');
   const [almacenDestino, setAlmacenDestino] = useState('Almacén Central');
   const [observaciones, setObservaciones] = useState('');
-
-  // Selector de Orden de Compra para jalar items
   const [selectedOCId, setSelectedOCId] = useState('');
-
-  // Formulario detalle
   const [selectedProdId, setSelectedProdId] = useState('');
   const [inputCantidad, setInputCantidad] = useState('');
   const [inputCosto, setInputCosto] = useState('');
-  const [items, setItems] = useState<ItemIngreso[]>([]);
-
+  const [items, setItems] = useState<ReceiptItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [receiptId, setReceiptId] = useState(() => `REC-${crypto.randomUUID()}`);
+  const saving = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    inventarioService.getProductos().then(setProductos);
-    proveedoresService.getProveedores().then(setProveedores);
-
-    const cachedOC = localStorage.getItem('erp_ordenes_compra');
-    if (cachedOC) {
+    let active = true;
+    async function load() {
       try {
-        setOrdenesCompra(JSON.parse(cachedOC));
-      } catch (e) {
-        setOrdenesCompra([]);
-      }
+        const data = await withInventoryLock(() => { recoverInventoryTransaction(localStorage); return readReceptionData(localStorage); });
+        const providers = await proveedoresService.getProveedores({ initializeIfEmpty: false });
+        if (!Array.isArray(providers)) throw new Error('Proveedores inválidos');
+        if (active) { setSource(data); setProductos(data.products); setProveedores(providers); setError(null); }
+      } catch { if (active) setError('No se pudo cargar o recuperar el inventario. Revisa los datos y reintenta; no se reemplazaron por ejemplos.'); }
+      finally { if (active) setLoading(false); }
     }
-  }, []);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  };
-
-  const handleSelectOC = (ocId: string) => {
-    setSelectedOCId(ocId);
-    if (!ocId) return;
-
-    const oc = ordenesCompra.find(o => o.id === ocId);
-    if (oc) {
-      setDocumentoTipo('ORDEN DE COMPRA');
-      setDocumentoNumero(oc.id);
-      setTipoOperacion('COMPRA');
-      if (oc.proveedor) {
-        const provMatch = proveedores.find(p => p.nombre.toLowerCase().includes(oc.proveedor.toLowerCase()));
-        if (provMatch) setSelectedProveedorId(provMatch.id);
-      }
-
-      if (oc.items && oc.items.length > 0) {
-        const mappedItems: ItemIngreso[] = oc.items.map((it: any) => {
-          const prodMatch = productos.find(p => p.codigo === it.codigo || p.descripcion === it.descripcion);
-          return {
-            id: Math.random().toString(),
-            productoId: prodMatch ? prodMatch.id : '',
-            codigo: it.codigo,
-            descripcion: it.descripcion,
-            almacen: almacenDestino,
-            cantidad: Number(it.cantidad) || 1,
-            costoUnitario: Number(it.precioUnitario) || 0,
-            total: (Number(it.cantidad) || 1) * (Number(it.precioUnitario) || 0)
-          };
-        });
-        setItems(mappedItems);
-        showToast(`Items importados desde la orden ${oc.id}`);
-      }
-    }
-  };
-
-  const handleAddItem = () => {
-    if (!selectedProdId || !inputCantidad || !inputCosto) {
-      alert('Por favor selecciona un producto e ingresa cantidad y costo unitario.');
-      return;
-    }
-
-    const prod = productos.find(p => p.id === selectedProdId);
-    if (!prod) return;
-
-    const cant = parseFloat(inputCantidad);
-    const costo = parseFloat(inputCosto);
-    if (isNaN(cant) || isNaN(costo) || cant <= 0 || costo <= 0) {
-      alert('Cantidad y costo deben ser valores positivos.');
-      return;
-    }
-
-    const newItem: ItemIngreso = {
-      id: Math.random().toString(),
-      productoId: prod.id,
-      codigo: prod.codigo,
-      descripcion: prod.descripcion,
-      almacen: almacenDestino,
-      cantidad: cant,
-      costoUnitario: costo,
-      total: cant * costo
-    };
-
-    setItems([...items, newItem]);
-    setSelectedProdId('');
-    setInputCantidad('');
-    setInputCosto('');
-  };
-
-  const handleRemoveItem = (id: string) => {
-    setItems(items.filter(i => i.id !== id));
-  };
-
-  const totalGeneral = items.reduce((acc, i) => acc + i.total, 0);
-  const totalCantidad = items.reduce((acc, i) => acc + i.cantidad, 0);
-
-  const handleSubmitIngreso = async () => {
-    if (items.length === 0) {
-      showToast('Debes ingresar al menos un producto para registrar el ingreso al Kardex.');
-      return;
-    }
-
-    if (!documentoNumero.trim()) {
-      showToast('Por favor especifica el número de documento de ingreso.');
-      return;
-    }
-
-    setIsSubmitting(true);
+    void load(); return () => { active = false; };
+  }, [reload]);
+  const ordenesCompra = source ? pendingPurchaseOrders(source.orders, source.movements) : [];
+  const selectedOrder = source?.orders.find(o => o.id === selectedOCId);
+  const supplier = selectedOrder ? receiptSupplier(selectedOrder, proveedores) : proveedores.find(p => p.id === selectedProveedorId);
+  const showToast = (message: string) => setToastMessage(message);
+  const handleSelectOC = (id: string) => {
+    if (saving.current) return;
+    if (items.length && !window.confirm('Se reemplazará el detalle sin guardar. ¿Continuar?')) return;
     try {
-      for (const item of items) {
-        await inventarioService.registrarMovimiento({
-          productoId: item.productoId,
-          productoCodigo: item.codigo,
-          productoDescripcion: item.descripcion,
-          tipoMovimiento: 'ENTRADA',
-          tipoOperacion: tipoOperacion,
-          documentoTipo: documentoTipo,
-          documentoNumero: documentoNumero.trim().toUpperCase(),
-          detalle: observaciones.trim() || `Ingreso de mercadería - ${documentoTipo} ${documentoNumero}`,
-          almacen: item.almacen || almacenDestino,
-          cantidad: item.cantidad,
-          costoUnitario: item.costoUnitario
-        });
-      }
-
-      showToast(`¡Ingreso registrado con éxito! Kardex actualizado.`);
-
-      // Si venía de una orden de compra, marcamos como atendida
-      if (selectedOCId) {
-        const updatedOCs = ordenesCompra.map(o => o.id === selectedOCId ? { ...o, estado: 'Ingresado al Kardex' } : o);
-        localStorage.setItem('erp_ordenes_compra', JSON.stringify(updatedOCs));
-        setOrdenesCompra(updatedOCs);
-      }
-
-      // Limpiar formulario
-      setItems([]);
-      setDocumentoNumero('');
-      setObservaciones('');
-      setSelectedOCId('');
-      // Refrescar productos
-      const prodsActualizados = await inventarioService.getProductos();
-      setProductos(prodsActualizados);
-    } catch (err: any) {
-      alert(`Error al registrar en Kardex: ${err.message}`);
-    } finally {
-      setIsSubmitting(false);
-    }
+      const latest = readReceptionData(localStorage);
+      const order = latest.orders.find(o => o.id === id);
+      const lines = id ? orderReceiptItems(order!, latest.products, latest.movements, almacenDestino) : [];
+      if (id && !lines.length) throw new Error('La orden no tiene cantidades pendientes.');
+      setSource(latest); setProductos(latest.products); setSelectedOCId(id); setItems(lines);
+      setSelectedProveedorId(order ? receiptSupplier(order, proveedores).id ?? '' : '');
+      setReceiptId(`REC-${crypto.randomUUID()}`); setError(null);
+      if (id) { setTipoOperacion('COMPRA'); showToast('Se cargaron todas las cantidades pendientes. Completa el documento real de recepción.'); }
+      setSelectedProdId(''); setInputCantidad(''); setInputCosto('');
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'No se pudo cargar la orden.'); }
   };
-
+  const handleAddItem = () => {
+    if (selectedOCId || saving.current) return;
+    const product = productos.find(p => p.id === selectedProdId);
+    const qty = Number(inputCantidad), cost = Number(inputCosto);
+    if (!product || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(cost) || cost <= 0) { setError('Selecciona un producto y cantidades/costos positivos y finitos.'); return; }
+    setItems(previous => [...previous, { id: crypto.randomUUID(), productoId: product.id, codigo: product.codigo, descripcion: product.descripcion, almacen: almacenDestino, cantidad: qty, costoUnitario: cost, total: qty * cost }]);
+    setSelectedProdId(''); setInputCantidad(''); setInputCosto(''); setError(null);
+  };
+  const handleRemoveItem = (id: string) => { if (!selectedOCId && !saving.current) setItems(previous => previous.filter(item => item.id !== id)); };
+  const totalGeneral = items.reduce((sum, item) => sum + item.cantidad * item.costoUnitario, 0);
+  const totalCantidad = items.reduce((sum, item) => sum + item.cantidad, 0);
+  const handleSubmitIngreso = async () => {
+    if (saving.current || loading || !source) return;
+    saving.current = true; setIsSubmitting(true); setError(null);
+    try {
+      if (!selectedOCId && (selectedProdId || inputCantidad || inputCosto)) throw new Error('Hay un producto sin agregar. Agrégalo o limpia sus campos antes de confirmar.');
+      const result = await withInventoryLock(() => {
+        if (!mounted.current) throw new Error('La pantalla se cerró antes de confirmar.');
+        return persistReception(localStorage, { id: receiptId, ordenId: selectedOCId, tipoOperacion, documentoTipo, documentoNumero, almacen: almacenDestino, observaciones, proveedorId: selectedProveedorId, items });
+      });
+      if (mounted.current) navigate(`/movimiento-kardex?recepcion=${encodeURIComponent(result.id)}`);
+    } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : 'No se pudo registrar la recepción.'); }
+    finally { saving.current = false; if (mounted.current) setIsSubmitting(false); }
+  };
   const formatCurrency = (val: number | undefined | null) => {
     const num = typeof val === 'number' && !isNaN(val) ? val : 0;
     return `S/ ${num.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -231,7 +130,7 @@ export const IngresoKardexPage: React.FC = () => {
           </button>
           <button 
             onClick={handleSubmitIngreso}
-            disabled={isSubmitting}
+            disabled={isSubmitting || loading || !source || items.length === 0}
             className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
           >
             <CheckCircle size={16} strokeWidth={2.5} />
@@ -240,6 +139,9 @@ export const IngresoKardexPage: React.FC = () => {
         </div>
       </div>
 
+      {loading && <p role="status" className="mb-4 text-sm text-slate-500">Cargando inventario y órdenes pendientes…</p>}
+      {error && <div role="alert" className="mb-4 p-4 border border-red-300 rounded-xl text-red-600">{error} <button type="button" onClick={() => { setLoading(true); setReload(value => value + 1); }} className="underline">Reintentar carga / recuperación</button></div>}
+      <fieldset disabled={isSubmitting || loading || !source} className="min-w-0 border-0 p-0 m-0">
       <div className="flex flex-col xl:flex-row gap-6 items-start">
         
         {/* Left Column: Detalle de Items */}
@@ -262,6 +164,7 @@ export const IngresoKardexPage: React.FC = () => {
                 <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Tipo de Operación</label>
                 <select 
                   value={tipoOperacion}
+                  disabled={Boolean(selectedOCId)}
                   onChange={(e) => setTipoOperacion(e.target.value as any)}
                   className={`w-full px-3 py-2.5 rounded-xl border text-sm font-medium ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
                 >
@@ -298,20 +201,21 @@ export const IngresoKardexPage: React.FC = () => {
             </div>
 
             {/* Opción rápida: Jalar desde Orden de Compra */}
-            {ordenesCompra.length > 0 && (
+            {(
               <div className={`mt-4 p-4 rounded-xl border ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-blue-50/50 border-blue-100'} flex flex-col md:flex-row items-start md:items-center justify-between gap-3`}>
                 <div className="flex items-center gap-2">
                   <ShoppingBag size={18} className="text-blue-500" />
                   <span className={`text-xs font-bold ${darkMode ? 'text-blue-300' : 'text-blue-700'}`}>
-                    ¿Deseas recepcionar una Orden de Compra existente?
+                    <label htmlFor="orden-compra-pendiente">Orden de compra pendiente</label>
                   </span>
                 </div>
                 <select 
+                  id="orden-compra-pendiente"
                   value={selectedOCId}
                   onChange={(e) => handleSelectOC(e.target.value)}
                   className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-blue-200 text-blue-900'}`}
                 >
-                  <option value="">Seleccionar Orden de Compra...</option>
+                  <option value="">Ingreso manual (sin orden de compra)</option>
                   {ordenesCompra.map(oc => (
                     <option key={oc.id} value={oc.id}>
                       {oc.id} - {oc.proveedor} ({oc.estado})
@@ -320,6 +224,8 @@ export const IngresoKardexPage: React.FC = () => {
                 </select>
               </div>
             )}
+            {!loading && source && ordenesCompra.length === 0 && <div className="mt-3 text-sm text-slate-500"><p>No hay órdenes de compra pendientes. Puedes registrar un ingreso manual.</p><button type="button" onClick={() => navigate('/orden-compra')} className="mt-2 text-blue-500 underline">Crear una compra</button></div>}
+            {selectedOCId && <p className="mt-3 text-xs text-blue-500 break-all">Referencia de orden: {selectedOCId}. El documento de recepción se ingresa por separado.</p>}
           </div>
 
           {/* Card 02: Detalle de Productos a Ingresar */}
@@ -335,7 +241,7 @@ export const IngresoKardexPage: React.FC = () => {
             </div>
 
             {/* Agregar item */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-6 items-end">
+            <fieldset disabled={Boolean(selectedOCId)} className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-6 items-end min-w-0">
               <div className="md:col-span-5">
                 <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Producto</label>
                 <select 
@@ -343,7 +249,7 @@ export const IngresoKardexPage: React.FC = () => {
                   onChange={(e) => {
                     setSelectedProdId(e.target.value);
                     const prod = productos.find(p => p.id === e.target.value);
-                    if (prod) setInputCosto(prod.costoUnitario.toString());
+                    setInputCosto(prod && prod.costoUnitario !== null && prod.costoUnitario !== undefined && Number.isFinite(Number(prod.costoUnitario)) ? String(prod.costoUnitario) : '');
                   }}
                   className={`w-full px-3 py-2.5 rounded-xl border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
                 >
@@ -388,7 +294,8 @@ export const IngresoKardexPage: React.FC = () => {
                   <Plus size={16} /> Agregar
                 </button>
               </div>
-            </div>
+            </fieldset>
+            {selectedOCId && <p className="mb-3 text-xs text-slate-500">Se recibirán todas las cantidades pendientes de la orden. No se permite quitar líneas ni agregar productos ajenos.</p>}
 
             {/* Tabla de Items */}
             <div className={`border rounded-xl overflow-hidden ${darkMode ? 'border-slate-800' : 'border-gray-200'}`}>
@@ -419,7 +326,7 @@ export const IngresoKardexPage: React.FC = () => {
                         <td className="px-4 py-3 text-right text-xs">{formatCurrency(it.costoUnitario)}</td>
                         <td className="px-4 py-3 text-right font-bold text-xs">{formatCurrency(it.total)}</td>
                         <td className="px-3 py-3 text-center">
-                          <button onClick={() => handleRemoveItem(it.id)} className="text-rose-500 hover:text-rose-700">
+                          <button disabled={Boolean(selectedOCId)} onClick={() => handleRemoveItem(it.id)} className="text-rose-500 hover:text-rose-700 disabled:opacity-30">
                             <Trash2 size={15} />
                           </button>
                         </td>
@@ -456,6 +363,7 @@ export const IngresoKardexPage: React.FC = () => {
                 <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>Proveedor (Opcional)</label>
                 <select 
                   value={selectedProveedorId}
+                  disabled={Boolean(selectedOCId)}
                   onChange={(e) => setSelectedProveedorId(e.target.value)}
                   className={`w-full px-3 py-2 rounded-xl border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
                 >
@@ -464,6 +372,7 @@ export const IngresoKardexPage: React.FC = () => {
                     <option key={p.id} value={p.id}>{p.nombre} ({p.documento})</option>
                   ))}
                 </select>
+                {supplier && <div className="mt-2 text-xs text-slate-500 space-y-1"><p>{supplier.nombre || 'Nombre no registrado'}</p><p>Documento: {supplier.documento || 'No registrado'}</p><p>Dirección: {supplier.direccion || 'No registrada'}</p><p>Correo: {supplier.email || 'No registrado'}</p><p>Teléfono: {supplier.telefono || 'No registrado'}</p>{selectedOCId && <p>Datos históricos de la orden cuando están disponibles.</p>}</div>}
               </div>
 
               <div>
@@ -520,6 +429,7 @@ export const IngresoKardexPage: React.FC = () => {
         </div>
 
       </div>
+      </fieldset>
 
       {/* Toast */}
       <AnimatePresence>

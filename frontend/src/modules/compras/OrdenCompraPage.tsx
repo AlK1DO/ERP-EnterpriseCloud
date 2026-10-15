@@ -1,169 +1,132 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle
 } from 'lucide-react';
-import { inventarioService, type Producto } from '../../services/inventarioService';
-
-interface ProductLine {
-  id: string;
-  codigo: string;
-  descripcion: string;
-  unidad: string;
-  cantidad: number;
-  precioUnitario: number;
-  importe: number;
-}
+import type { Producto } from '../../services/inventarioService';
+import { proveedoresService, type Proveedor } from '../../services/proveedoresService';
+import { addPurchaseLine, hasUnsavedPurchase, newPurchaseId, paymentLabel, persistPurchase, positiveNumber, purchaseTotals, readPurchaseProducts, supplierSnapshot, supplierUsable } from './purchaseOrder';
+import type { PurchaseLine } from './purchaseOrder';
 
 export const OrdenCompraPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
-  const [products, setProducts] = useState<ProductLine[]>([]);
+  const navigate = useNavigate();
+  const [products, setProducts] = useState<PurchaseLine[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState('');
   const [inputCant, setInputCant] = useState('');
   const [inputPrecio, setInputPrecio] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
-  };
-  
-  // Modal state
+  const [error, setError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [savedOrder, setSavedOrder] = useState<{ id: string; total: number } | null>(null);
+  const [draftId, setDraftId] = useState(newPurchaseId);
+  const savePending = useRef(false);
+  const mounted = useRef(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedProveedor, setSelectedProveedor] = useState<any>(null);
+  const [selectedProveedor, setSelectedProveedor] = useState<Proveedor | null>(null);
   const [proveedorSearch, setProveedorSearch] = useState('');
-
-  const proveedoresDB = [
-    { nombre: 'TechSolutions S.A.C.', ruc: '20512345678', condicion: 'Contado' },
-    { nombre: 'Dell Perú S.A.C.', ruc: '20123456789', condicion: '30 días' },
-    { nombre: 'Logitech Latam S.R.L.', ruc: '20987654321', condicion: '15 días' },
-    { nombre: 'HP Inc Perú S.A.', ruc: '20456789123', condicion: 'Contado' },
-  ];
-
+  const [proveedoresDB, setProveedoresDB] = useState<Proveedor[]>([]);
   const [productDB, setProductDB] = useState<Producto[]>([]);
 
   useEffect(() => {
-    inventarioService.getProductos().then(prods => {
-      setProductDB(prods);
-    });
+    mounted.current = true;
+    return () => { mounted.current = false; };
   }, []);
-
-  const handleAddProduct = () => {
-    if (!searchQuery || !inputCant || !inputPrecio) return;
-    
-    const dbProduct = productDB.find(p => p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) || p.codigo.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const cant = parseFloat(inputCant);
-    const precio = parseFloat(inputPrecio);
-    
-    if (isNaN(cant) || isNaN(precio) || cant <= 0 || precio <= 0) return;
-
-    const newProduct: ProductLine = {
-      id: Math.random().toString(),
-      codigo: dbProduct ? dbProduct.codigo : 'GEN-001',
-      descripcion: dbProduct ? dbProduct.descripcion : searchQuery,
-      unidad: dbProduct ? dbProduct.unidad : 'UNID',
-      cantidad: cant,
-      precioUnitario: precio,
-      importe: cant * precio
-    };
-
-    setProducts([...products, newProduct]);
-    setSearchQuery('');
-    setInputCant('');
-    setInputPrecio('');
-  };
-
-  const removeProduct = (id: string) => {
-    setProducts(products.filter(p => p.id !== id));
-  };
-
-  const subtotal = products.reduce((acc, curr) => acc + curr.importe, 0);
-  const descValue = parseFloat(descuentoGlobal) || 0;
-  const subtotalConDescuento = subtotal - descValue;
-  const igv = subtotalConDescuento * 0.18;
-  const total = subtotalConDescuento + igv;
-
-  const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  const handleSaveOrder = () => {
-    if (products.length === 0) {
-      showToast("No puedes grabar una orden vacía. Agrega al menos un producto.");
-      return;
-    }
-
-    const ocId = `OC-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
-    const cachedOCs = localStorage.getItem('erp_ordenes_compra');
-    const ocs = cachedOCs ? JSON.parse(cachedOCs) : [];
-    const newOC = {
-      id: ocId,
-      proveedor: selectedProveedor ? selectedProveedor.nombre : 'Proveedor General',
-      ruc: selectedProveedor ? selectedProveedor.ruc : '',
-      fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      total,
-      subtotal,
-      igv,
-      items: products.map(p => ({
-        codigo: p.codigo,
-        descripcion: p.descripcion,
-        unidad: p.unidad,
-        cantidad: p.cantidad,
-        precioUnitario: p.precioUnitario,
-        importe: p.importe
-      })),
-      estado: 'Emitida'
-    };
-    localStorage.setItem('erp_ordenes_compra', JSON.stringify([newOC, ...ocs]));
-
-    // Obtener los datos actuales del Dashboard desde localStorage
-    const cached = localStorage.getItem('erp_dashboard_data');
-    if (cached) {
-      const dashboardData = JSON.parse(cached);
-      dashboardData.comprasTotales += total;
-      
-      const today = new Date();
-      const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
-      
-      const descProv = selectedProveedor?.nombre ? selectedProveedor.nombre.substring(0, 20) : 'Proveedor';
-      const newMovement = {
-        id: Date.now(),
-        fecha: dateStr,
-        descripcion: `Compra a ${descProv} - Orden #${ocId}`,
-        tipo: 'salida',
-        monto: total
-      };
-
-      dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
-      localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
-    }
-
-    showToast(`¡Orden ${ocId} por ${formatCurrency(total)} grabada exitosamente!`);
-    
-    // Limpiar el formulario
-    setProducts([]);
-    setDescuentoGlobal('');
-    setSearchQuery('');
-    setInputCant('');
-    setInputPrecio('');
-    setSelectedProveedor(null);
-  };
-
-  const handleNuevaCompra = () => {
-    if (products.length > 0 || searchQuery || inputCant || inputPrecio || descuentoGlobal || selectedProveedor) {
-      if (window.confirm('¿Estás seguro de limpiar la pantalla para crear una nueva orden?')) {
-        setProducts([]);
-        setSearchQuery('');
-        setInputCant('');
-        setInputPrecio('');
-        setDescuentoGlobal('');
-        setSelectedProveedor(null);
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+  useEffect(() => {
+    let active = true;
+    async function loadCatalog() {
+      try {
+        const providers = await proveedoresService.getProveedores({ initializeIfEmpty: false });
+        if (!Array.isArray(providers) || providers.some(p => !p || typeof p !== 'object')) throw new Error('Datos de proveedores inválidos.');
+        const catalog = readPurchaseProducts(localStorage);
+        if (active) { setProveedoresDB(providers); setProductDB(catalog); setCatalogError(null); }
+      } catch {
+        if (active) setCatalogError('No se pudieron cargar proveedores o productos. No se modificaron los registros. Revisa los datos y reintenta.');
+      } finally {
+        if (active) setLoading(false);
       }
     }
-  };
+    void loadCatalog();
+    return () => { active = false; };
+  }, [reload]);
 
+  const showToast = (message: string) => setToastMessage(message);
+  const retryCatalog = () => { setLoading(true); setReload(value => value + 1); };
+  const openProvider = () => { if (!saving && !savedOrder) { retryCatalog(); setIsModalOpen(true); } };
+  const filteredProviders = proveedoresDB.filter(p => String(p.nombre ?? '').toLowerCase().includes(proveedorSearch.toLowerCase()) || String(p.documento ?? '').includes(proveedorSearch));
+  const filteredProducts = productDB.filter(p => p.codigo.toLowerCase().includes(searchQuery.toLowerCase()) || p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()));
+  function selectProduct(id: string) {
+    setSelectedProductId(id);
+    const product = productDB.find(p => p.id === id);
+    setInputPrecio(product && Number.isFinite(Number(product.costoUnitario)) && Number(product.costoUnitario) > 0 ? String(product.costoUnitario) : '');
+    setError(null);
+  }
+  const handleAddProduct = () => {
+    if (saving || savedOrder) return;
+    try {
+      const product = productDB.find(p => p.id === selectedProductId);
+      if (!product) throw new Error('Selecciona un producto del catálogo; escribir una descripción no selecciona un producto.');
+      if (products.some(p => p.producto_id === product.id)) throw new Error('El producto ya está agregado. Edita su cantidad en la tabla.');
+      const line = addPurchaseLine(product, inputCant, inputPrecio);
+      setProducts(previous => [...previous, line]);
+      setSearchQuery(''); setSelectedProductId(''); setInputCant(''); setInputPrecio(''); setError(null);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Revisa el producto.'); }
+  };
+  const removeProduct = (id: string) => { setProducts(previous => previous.filter(p => p.id !== id)); setError(null); };
+  function editLine(id: string, field: 'cantidad' | 'precioUnitario', value: string) {
+    setProducts(previous => previous.map(p => p.id === id ? { ...p, [field]: value } : p));
+    setError(null);
+  }
+  let preview: ReturnType<typeof purchaseTotals> | null = null;
+  let validationError: string | null = null;
+  try { preview = purchaseTotals(products, descuentoGlobal); }
+  catch (failure) { validationError = failure instanceof Error ? failure.message : 'Revisa los importes.'; }
+  const subtotal = preview?.subtotal;
+  const descValue = preview?.descuento;
+  const igv = preview?.igv;
+  const total = preview?.total;
+  const formatCurrency = (value: number | undefined) => value !== undefined && Number.isFinite(value) ? `S/ ${value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+  const lineAmount = (line: PurchaseLine) => {
+    try { return positiveNumber(line.cantidad, 'Cantidad') * positiveNumber(line.precioUnitario, 'Precio'); }
+    catch { return undefined; }
+  };
+  const handleSaveOrder = async () => {
+    if (savePending.current || savedOrder || loading || catalogError) return;
+    savePending.current = true; setSaving(true); setError(null); setToastMessage(null);
+    try {
+      if (searchQuery || selectedProductId || inputCant || inputPrecio) throw new Error('Hay un producto sin agregar. Agrégalo o limpia sus campos antes de guardar.');
+      const providers = await proveedoresService.getProveedores({ initializeIfEmpty: false });
+      if (!mounted.current) return;
+      const order = persistPurchase(localStorage, { id: draftId, proveedor: selectedProveedor ? supplierSnapshot(selectedProveedor) : null, items: products, descuento: descuentoGlobal }, providers);
+      setSavedOrder({ id: order.id, total: order.total });
+      showToast(`Orden ${order.id} guardada por ${formatCurrency(order.total)}. Pendiente de ingreso al Kardex.`);
+    } catch (failure) {
+      if (mounted.current) setError(failure instanceof Error ? failure.message : 'No se pudo guardar. Tus campos se mantienen para reintentar.');
+    } finally {
+      savePending.current = false;
+      if (mounted.current) setSaving(false);
+    }
+  };
+  const handleNuevaCompra = () => {
+    if (savePending.current) return;
+    const dirty = hasUnsavedPurchase({ items: products, selectedSupplier: selectedProveedor, search: searchQuery || selectedProductId, quantity: inputCant, price: inputPrecio, discount: descuentoGlobal }, Boolean(savedOrder));
+    if (dirty && !window.confirm('Hay cambios sin guardar. ¿Descartarlos e iniciar una nueva compra?')) return;
+    setProducts([]); setSearchQuery(''); setSelectedProductId(''); setInputCant(''); setInputPrecio('');
+    setDescuentoGlobal(''); setSelectedProveedor(null); setProveedorSearch(''); setIsModalOpen(false);
+    setSavedOrder(null); setDraftId(newPurchaseId()); setError(null); setToastMessage(null);
+    retryCatalog();
+  };
   // Colores principales
   const tealColor = '#00b894';
   const tealBadge = '#78e08f';
@@ -194,6 +157,7 @@ export const OrdenCompraPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <button 
             onClick={handleNuevaCompra}
+            disabled={saving}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-colors border shadow-sm ${
               darkMode ? 'bg-slate-800 border-slate-700 text-teal-400 hover:bg-slate-700' : 'bg-white border-gray-200 text-[#00b894] hover:bg-gray-50'
             }`}
@@ -203,17 +167,27 @@ export const OrdenCompraPage: React.FC = () => {
           </button>
           <button 
             onClick={handleSaveOrder}
+            disabled={saving || loading || Boolean(catalogError) || Boolean(savedOrder)}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
             style={{ backgroundColor: tealColor }}
             onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#00a884'}
             onMouseOut={(e) => e.currentTarget.style.backgroundColor = tealColor}
           >
             <Receipt size={16} strokeWidth={2.5} />
-            Grabar orden
+            {saving ? 'Guardando…' : savedOrder ? 'Orden guardada' : 'Grabar orden'}
           </button>
         </div>
       </div>
 
+      {loading && <p role="status" className="mb-4 text-sm text-slate-500">Cargando proveedores y productos…</p>}
+      {catalogError && <div role="alert" className="mb-4 p-4 border border-red-300 rounded-xl text-red-600">{catalogError} <button type="button" onClick={retryCatalog} className="underline">Reintentar carga</button></div>}
+      {(error || validationError) && <p role="alert" className="mb-4 p-4 border border-red-300 rounded-xl text-red-600">{error || validationError}</p>}
+      {savedOrder && <div role="status" className={`mb-6 p-4 rounded-xl border ${darkMode ? 'bg-teal-950 border-teal-800 text-teal-200' : 'bg-teal-50 border-teal-200 text-teal-800'}`}>
+        <p className="font-semibold break-all">Orden {savedOrder.id} guardada por {formatCurrency(savedOrder.total)}.</p>
+        <p className="text-sm mt-1">Pendiente de ingreso al Kardex. No se modificaron existencias ni se generaron movimientos.</p>
+        <button type="button" onClick={() => navigate('/ingreso-kardex')} className="mt-3 px-4 py-2 rounded-lg bg-teal-600 text-white font-semibold">Ir a Ingreso al Kardex</button>
+      </div>}
+      <fieldset disabled={saving || loading || Boolean(catalogError) || Boolean(savedOrder)} className="min-w-0 border-0 p-0 m-0">
       <div className="flex flex-col xl:flex-row gap-6 items-start">
         
         {/* Left Column - Forms */}
@@ -244,17 +218,24 @@ export const OrdenCompraPage: React.FC = () => {
                       type="text" 
                       placeholder="Seleccionar producto" 
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => { setSearchQuery(e.target.value); setSelectedProductId(''); }}
                       className={`w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-[#00b894]/30 focus:border-[#00b894] transition-all ${
                         darkMode ? 'bg-slate-950 border-slate-700 text-white placeholder-slate-500' : 'bg-gray-50 border-gray-200 text-[#2d3436]'
                       }`}
                     />
                   </div>
+                  <select aria-label="Seleccionar producto del catálogo" value={selectedProductId} onChange={e => selectProduct(e.target.value)} className={`mt-2 w-full p-2.5 rounded-lg border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-gray-200 text-[#2d3436]'}`}>
+                    <option value="">Selecciona un producto</option>
+                    {filteredProducts.map(p => <option key={p.id} value={p.id}>{p.codigo} — {p.descripcion}</option>)}
+                  </select>
+                  {!loading && !catalogError && productDB.length === 0 && <p className="mt-2 text-xs text-slate-500">No hay productos válidos registrados. Regístralos en Stock de productos.</p>}
                 </div>
                 <div className="w-full md:w-32">
                   <label className={`block text-xs font-bold uppercase tracking-wide mb-2 ${darkMode ? 'text-slate-300' : 'text-[#2d3436]'}`}>CANTIDAD</label>
                   <input 
                     type="number" 
+                    min="0"
+                    step="any"
                     placeholder="0.00" 
                     value={inputCant}
                     onChange={(e) => setInputCant(e.target.value)}
@@ -267,6 +248,8 @@ export const OrdenCompraPage: React.FC = () => {
                   <label className={`block text-xs font-bold uppercase tracking-wide mb-2 ${darkMode ? 'text-slate-300' : 'text-[#2d3436]'}`}>PRECIO UNITARIO</label>
                   <input 
                     type="number" 
+                    min="0"
+                    step="any"
                     placeholder="0.00" 
                     value={inputPrecio}
                     onChange={(e) => setInputPrecio(e.target.value)}
@@ -325,13 +308,14 @@ export const OrdenCompraPage: React.FC = () => {
                             <td className={`px-5 py-3.5 text-xs ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>{p.codigo}</td>
                             <td className={`px-5 py-3.5 text-sm font-medium ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{p.descripcion}</td>
                             <td className={`px-5 py-3.5 text-xs ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>{p.unidad}</td>
-                            <td className={`px-5 py-3.5 text-right text-sm ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{p.cantidad.toFixed(2)}</td>
-                            <td className={`px-5 py-3.5 text-right text-sm ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{formatCurrency(p.precioUnitario)}</td>
-                            <td className={`px-5 py-3.5 text-right text-sm font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{formatCurrency(p.importe)}</td>
+                            <td className={`px-5 py-3.5 text-right text-sm ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}><input aria-label={`Cantidad de ${p.codigo}`} type="number" min="0" step="any" value={p.cantidad} onChange={e => editLine(p.id, 'cantidad', e.target.value)} className="w-24 p-2 text-right border rounded bg-transparent" /></td>
+                            <td className={`px-5 py-3.5 text-right text-sm ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}><input aria-label={`Precio unitario de ${p.codigo}`} type="number" min="0" step="any" value={p.precioUnitario} onChange={e => editLine(p.id, 'precioUnitario', e.target.value)} className="w-28 p-2 text-right border rounded bg-transparent" /></td>
+                            <td className={`px-5 py-3.5 text-right text-sm font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{formatCurrency(lineAmount(p))}</td>
                             <td className="px-3 py-3.5">
                               <button 
                                 onClick={() => removeProduct(p.id)}
-                                className={`transition-colors opacity-0 group-hover:opacity-100 ${darkMode ? 'text-slate-500 hover:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
+                                aria-label={`Quitar ${p.codigo}`}
+                                className={`transition-colors ${darkMode ? 'text-slate-500 hover:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -372,6 +356,8 @@ export const OrdenCompraPage: React.FC = () => {
                   <span className={`absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium ${darkMode ? 'text-slate-500' : 'text-gray-500'}`}>S/</span>
                   <input 
                     type="number" 
+                    min="0"
+                    step="any"
                     placeholder="0.00" 
                     value={descuentoGlobal}
                     onChange={(e) => setDescuentoGlobal(e.target.value)}
@@ -399,7 +385,7 @@ export const OrdenCompraPage: React.FC = () => {
             <div className="flex justify-between items-start mb-5">
               <div>
                 <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>Datos del proveedor</h3>
-                <p className={`text-[13px] mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Datos editables y operativos</p>
+                <p className={`text-[13px] mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Datos del proveedor registrado</p>
               </div>
               <Building2 className={`${darkMode ? 'text-slate-600' : 'text-gray-300'}`} size={20} />
             </div>
@@ -409,13 +395,19 @@ export const OrdenCompraPage: React.FC = () => {
                 className={`w-full p-4 rounded-xl border relative group cursor-pointer transition-all ${
                   darkMode ? 'border-teal-500/30 bg-teal-500/5 hover:border-teal-500/50' : 'border-[#00b894]/30 bg-[#00b894]/5 hover:border-[#00b894]/50'
                 }`}
-                onClick={() => setIsModalOpen(true)}
+                onClick={openProvider}
               >
                 <div className="flex justify-between items-start">
                   <div>
                     <p className={`text-sm font-bold mb-1 ${darkMode ? 'text-teal-400' : 'text-[#00b894]'}`}>{selectedProveedor.nombre}</p>
-                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>RUC: {selectedProveedor.ruc}</p>
-                    <p className={`text-[12px] ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Condición: {selectedProveedor.condicion}</p>
+                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>Documento: {selectedProveedor.documento}</p>
+                    <div className={`text-[12px] space-y-1 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                      <p>Condición: {paymentLabel(supplierSnapshot(selectedProveedor).condicion_pago)}</p>
+                      <p>Dirección: {selectedProveedor.direccion || 'No registrada'}</p>
+                      <p>Correo: {selectedProveedor.email || 'No registrado'}</p>
+                      <p>Teléfono: {selectedProveedor.telefono || 'No registrado'}</p>
+                      <p>Estado: {selectedProveedor.estado}</p>
+                    </div>
                   </div>
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/50 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Search size={14} />
@@ -424,7 +416,7 @@ export const OrdenCompraPage: React.FC = () => {
               </div>
             ) : (
               <button 
-                onClick={() => setIsModalOpen(true)}
+                onClick={openProvider}
                 className={`w-full py-3.5 px-4 rounded-xl border flex items-center gap-3 transition-all shadow-sm ${
                   darkMode ? 'border-slate-700 hover:border-slate-600 hover:bg-slate-800/50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                 }`}
@@ -480,20 +472,22 @@ export const OrdenCompraPage: React.FC = () => {
 
             <button 
               onClick={handleSaveOrder}
+              disabled={saving || loading || Boolean(catalogError) || Boolean(savedOrder)}
               className="w-full py-3.5 rounded-xl text-white font-bold text-base transition-colors shadow-sm mb-4"
               style={{ backgroundColor: tealColor }}
               onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#00a884'}
               onMouseOut={(e) => e.currentTarget.style.backgroundColor = tealColor}
             >
-              Grabar orden de compra
+              {saving ? 'Guardando…' : savedOrder ? 'Orden guardada' : 'Grabar orden de compra'}
             </button>
             <p className={`text-[12px] leading-relaxed text-center px-2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>
-              Al grabar podrás decidir si la operación genera automáticamente el movimiento en Kardex.
+              La orden quedará pendiente de ingreso al Kardex. Guardarla no modifica existencias ni genera movimientos.
             </p>
           </div>
 
         </div>
       </div>
+      </fieldset>
 
       {/* Modal Buscar Proveedor */}
       <AnimatePresence>
@@ -533,11 +527,13 @@ export const OrdenCompraPage: React.FC = () => {
 
               {/* Modal Body */}
               <div className="p-6">
+                {loading && <p role="status" className="mb-3 text-sm text-slate-500">Actualizando proveedores…</p>}
+                {error && <p role="alert" className="mb-3 text-sm text-red-500">{error}</p>}
                 <div className="relative mb-6">
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={18} />
                   <input 
                     type="text" 
-                    placeholder="Proveedor / RUC" 
+                    placeholder="Proveedor / documento"
                     value={proveedorSearch}
                     onChange={(e) => setProveedorSearch(e.target.value)}
                     className={`w-full pl-11 pr-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-[#00b894]/30 focus:border-[#00b894] transition-all ${
@@ -551,20 +547,19 @@ export const OrdenCompraPage: React.FC = () => {
                     <thead className={`${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'}`}>
                       <tr>
                         <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>PROVEEDOR</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>RUC</th>
+                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DOCUMENTO</th>
                         <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
                         <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>ESTADO</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
-                      {proveedoresDB.filter(p => 
-                        p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase()) || 
-                        p.ruc.includes(proveedorSearch)
-                      ).map(prov => (
+                      {filteredProviders.map(prov => (
                         <tr 
-                          key={prov.ruc}
+                          key={prov.id}
                           onClick={() => {
+                            if (loading || !supplierUsable(prov)) { setError('Selecciona un proveedor activo con nombre y documento válidos.'); return; }
                             setSelectedProveedor(prov);
+                            setError(null);
                             setIsModalOpen(false);
                             setProveedorSearch('');
                           }}
@@ -572,20 +567,17 @@ export const OrdenCompraPage: React.FC = () => {
                             darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-gray-50'
                           }`}
                         >
-                          <td className={`px-5 py-3.5 font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{prov.nombre}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{prov.ruc}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{prov.condicion}</td>
+                          <td className={`px-5 py-3.5 font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}><button type="button" disabled={loading || !supplierUsable(prov)} className="text-left disabled:opacity-50">{prov.nombre || 'Sin nombre'}</button></td>
+                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{prov.documento || 'No registrado'}</td>
+                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{paymentLabel(supplierSnapshot(prov).condicion_pago)}</td>
                           <td className="px-5 py-3.5">
                             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#00b894]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#00b894]"></span> Activo
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#00b894]"></span> {prov.estado || 'No registrado'}{!supplierUsable(prov) && ' · No seleccionable'}
                             </span>
                           </td>
                         </tr>
                       ))}
-                      {proveedoresDB.filter(p => 
-                        p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase()) || 
-                        p.ruc.includes(proveedorSearch)
-                      ).length === 0 && (
+                      {filteredProviders.length === 0 && (
                         <tr>
                           <td colSpan={4} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                             No se encontraron proveedores que coincidan con la búsqueda.

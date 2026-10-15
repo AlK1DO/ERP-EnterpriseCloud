@@ -1,244 +1,65 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
-  TrendingUp, TrendingDown, AlertCircle, ShoppingCart, 
-  DollarSign, Percent, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight
+  AlertCircle, ShoppingCart,
+  DollarSign, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { analysisPdf } from './dashboardPdf';
+import { analysisCsv, analysisTable, computeDashboard, dateKey, readRows } from './dashboardAnalytics';
+import type { Period } from './dashboardAnalytics';
+import { commercialSnapshot } from '../../services/commercialBackup';
 
-import { inventarioService } from '../../services/inventarioService';
+import { useInventoryRefresh } from '../../services/useInventoryRefresh';
 
-interface DashboardData {
-  ventasTotales: number;
-  comprasTotales: number;
-  ctasPendientes: number;
-  stockBajo: number;
-  margen: number;
-  chartData: any[];
-  areaChartData: any[];
-  pieData: any[];
-  stockList: any[];
-  ultimosMovimientos: any[];
+function loadInputs() {
+  try {
+    return {
+      orders: readRows(localStorage, 'erp_ordenes_venta'), purchases: readRows(localStorage, 'erp_ordenes_compra'),
+      invoices: readRows(localStorage, 'erp_estado_cuenta'), products: readRows(localStorage, 'erp_products_db'),
+      movements: readRows(localStorage, 'erp_kardex_movimientos'), error: null as string | null,
+    };
+  } catch {
+    return { orders: [], purchases: [], invoices: [], products: [], movements: [], error: 'No se pudieron leer los datos locales. Descarga un respaldo y revisa los registros antes de continuar; no fueron reemplazados.' };
+  }
 }
 
 export const DashboardPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const navigate = useNavigate();
+  const [inputs, setInputs] = useState(loadInputs);
+  const [period, setPeriod] = useState<Period>('monthly');
+  const [reference, setReference] = useState(() => dateKey(new Date().toISOString())!);
+  const [currency, setCurrency] = useState('PEN');
+  const data = useMemo(() => computeDashboard(inputs.orders, inputs.purchases, inputs.invoices, inputs.products, inputs.movements, period, reference, currency), [inputs, period, reference, currency]);
   const dashboardRef = useRef<HTMLDivElement>(null);
-  
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-
   const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-  const computeRealData = async (): Promise<DashboardData> => {
-    // 1. Ventas reales
-    const cachedVentas = localStorage.getItem('erp_ordenes_venta');
-    const ventas: any[] = cachedVentas ? JSON.parse(cachedVentas) : [];
-    const ventasTotales = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
-
-    // 2. Compras reales
-    const cachedCompras = localStorage.getItem('erp_ordenes_compra');
-    const compras: any[] = cachedCompras ? JSON.parse(cachedCompras) : [];
-    const comprasTotales = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
-
-    // 3. Cuentas pendientes reales
-    const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
-    const cuentas: any[] = cachedCuenta ? JSON.parse(cachedCuenta) : [];
-    const ctasPendientes = cuentas.reduce((acc, d) => acc + (Number(d.saldo) || 0), 0);
-
-    // 4. Productos y Stock reales
-    const productos = await inventarioService.getProductos();
-    const stockCritico = productos.filter(p => p.stock <= p.stockMinimo);
-    const stockBajo = stockCritico.length;
-
-    // 5. Margen
-    const margen = ventasTotales > 0 
-      ? parseFloat((((ventasTotales - comprasTotales) / ventasTotales) * 100).toFixed(1))
-      : 0;
-
-    // 6. Lista de Stock
-    const stockList = productos.map(p => ({
-      id: p.id,
-      name: p.descripcion,
-      sku: `${p.codigo} - ${p.almacen}`,
-      current: p.stock,
-      min: p.stockMinimo
-    }));
-
-    // 7. Movimientos reales de Kardex
-    const kardexMovs = await inventarioService.getMovimientos();
-    const ultimosMovimientos = kardexMovs.slice(0, 5).map((m, idx) => ({
-      id: m.id || idx,
-      fecha: new Date(m.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      descripcion: `${m.documentoTipo} ${m.documentoNumero} - ${m.productoDescripcion}`,
-      tipo: m.tipoMovimiento === 'ENTRADA' ? 'ingreso' : 'salida',
-      monto: m.tipoMovimiento === 'ENTRADA' ? (m.totalEntrada || 0) : (m.totalSalida || 0)
-    }));
-
-    // 8. Participación por línea según valorización de inventario
-    const catMap: Record<string, number> = {};
-    productos.forEach(p => {
-      catMap[p.categoria] = (catMap[p.categoria] || 0) + (p.stock * p.precioVenta);
-    });
-    const pieData = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.round(value) }));
-    if (pieData.length === 0) {
-      pieData.push({ name: 'Sin productos', value: 1 });
-    }
-
-    // 9. Datos de comparación real
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const currentMonth = monthNames[new Date().getMonth()];
-    const chartData = [
-      { name: currentMonth, Ventas: Math.round(ventasTotales), Compras: Math.round(comprasTotales) }
-    ];
-
-    const areaChartData = [
-      { name: 'L', value: Math.round(ventasTotales * 0.1) },
-      { name: 'M', value: Math.round(ventasTotales * 0.15) },
-      { name: 'X', value: Math.round(ventasTotales * 0.2) },
-      { name: 'J', value: Math.round(ventasTotales * 0.25) },
-      { name: 'V', value: Math.round(ventasTotales * 0.3) },
-    ];
-
-    return {
-      ventasTotales,
-      comprasTotales,
-      ctasPendientes,
-      stockBajo,
-      margen,
-      chartData,
-      areaChartData,
-      pieData,
-      stockList,
-      ultimosMovimientos
-    };
-  };
-
-  const loadData = async () => {
-    setLoading(true);
-    const realData = await computeRealData();
-    setData(realData);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const handleRefresh = async () => {
-    await loadData();
-  };
-
-  const handleExportPDF = () => {
-    if (!data) return;
-    const doc = new jsPDF();
-    
-    // Título Principal
-    doc.setFontSize(22);
-    doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('ERP SENATINO - Reporte Ejecutivo', 14, 22);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Fecha de emisión: ${new Date().toLocaleDateString('es-PE')} | Periodo: Junio 2026`, 14, 30);
-    
-    // 1. KPIs Generales
-    autoTable(doc, {
-      startY: 40,
-      head: [['Métrica Principal', 'Valor Registrado', 'Observación']],
-      body: [
-        ['Ventas Totales', formatCurrency(data.ventasTotales), 'Acumulado del mes'],
-        ['Compras Totales', formatCurrency(data.comprasTotales), 'Órdenes de compra ejecutadas'],
-        ['Cuentas Pendientes', formatCurrency(data.ctasPendientes), 'Cuentas por cobrar a clientes'],
-        ['Stock Crítico', `${data.stockBajo} Productos`, 'Requieren reposición urgente'],
-        ['Margen Bruto', `${data.margen}%`, 'Margen promedio estimado general']
-      ],
-      theme: 'grid',
-      headStyles: { fillColor: [37, 99, 235], fontSize: 11, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      margin: { bottom: 15 }
-    });
-    
-    // 2. Alertas de Stock (Relleno)
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Productos en Alerta de Stock', 14, (doc as any).lastAutoTable.finalY + 15);
-    
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['SKU', 'Producto', 'Stock Actual', 'Mínimo']],
-      body: data.stockList.map(item => [
-        item.sku.split(' - ')[0], 
-        item.name, 
-        item.current.toString(), 
-        item.min.toString()
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [234, 88, 12], fontSize: 11 },
-      alternateRowStyles: { fillColor: [255, 247, 237] },
-      margin: { bottom: 15 }
-    });
-
-    // 3. Resumen Financiero Mensual (Datos del gráfico de barras)
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Histórico Ventas vs Compras (Últimos 6 meses)', 14, (doc as any).lastAutoTable.finalY + 15);
-
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 20,
-      head: [['Mes', 'Total Ventas', 'Total Compras', 'Balance']],
-      body: data.chartData.map(d => [
-        d.name,
-        formatCurrency(d.Ventas),
-        formatCurrency(d.Compras),
-        formatCurrency(d.Ventas - d.Compras)
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [71, 85, 105], fontSize: 11 },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      margin: { bottom: 15 }
-    });
-
-    // 4. Últimos Movimientos
-    let startYMovimientos = (doc as any).lastAutoTable.finalY + 20;
-    
-    if (startYMovimientos > 240) {
-      doc.addPage();
-      startYMovimientos = 25;
-      doc.setFontSize(14);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Registro de Últimos Movimientos', 14, 20);
-    } else {
-      doc.setFontSize(14);
-      doc.setTextColor(15, 23, 42);
-      doc.text('Registro de Últimos Movimientos', 14, startYMovimientos - 5);
-    }
-      
-    autoTable(doc, {
-      startY: startYMovimientos,
-      head: [['Fecha', 'Descripción Operativa', 'Tipo', 'Monto (S/)']],
-      body: data.ultimosMovimientos.map(m => [
-        m.fecha, 
-        m.descripcion, 
-        m.tipo.toUpperCase(), 
-        formatCurrency(m.monto)
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129], fontSize: 11 },
-      alternateRowStyles: { fillColor: [240, 253, 244] }
-    });
-
-    doc.save('Reporte_Completo_ERPSenatino.pdf');
-  };
-
+  const handleRefresh = useCallback(() => setInputs(loadInputs()), []);
+  useInventoryRefresh(handleRefresh);
+  const formatCurrency = (val: number) => new Intl.NumberFormat('es-PE', { style: 'currency', currency }).format(val);
+  const inventoryAlert = !inputs.error && data.stockList.some(item => item.state !== 'NORMAL');
+  const periodLabel = `${data.range.start} al ${data.range.end}`;
+  function download(content: string, filename: string, type: string) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function exportAnalysis(kind: 'summary' | 'comparison' | 'sales' | 'inventory', format: 'PDF' | 'CSV') {
+    if (inputs.error) return;
+    const table = analysisTable(data, kind, currency);
+    const filename = `${kind}_${kind === 'inventory' ? 'actual_PEN' : `${data.range.start}_${data.range.end}_${currency}`}`;
+    if (format === 'CSV') { download(analysisCsv(table), `${filename}.csv`, 'text/csv;charset=utf-8'); return; }
+    analysisPdf(table).save(`${filename}.pdf`);
+  }
+  const exportButtons = (kind: 'comparison' | 'sales' | 'inventory') => <div className="flex gap-2 mt-2 text-xs print:hidden">
+    <button type="button" onClick={() => exportAnalysis(kind, 'PDF')} className="px-2 py-1 border rounded" disabled={Boolean(inputs.error)}>PDF</button>
+    <button type="button" onClick={() => exportAnalysis(kind, 'CSV')} className="px-2 py-1 border rounded" disabled={Boolean(inputs.error)}>CSV</button>
+  </div>;
+  const handleExportPDF = () => exportAnalysis('summary', 'PDF');
   const containerVariants = {
     hidden: { opacity: 0 },
     show: {
@@ -252,16 +73,6 @@ export const DashboardPage: React.FC = () => {
     show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
   };
 
-  if (loading || !data) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <RefreshCw className={`animate-spin ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} size={32} />
-      </div>
-    );
-  }
-
-  const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6 max-w-7xl mx-auto pb-10">
       
@@ -269,10 +80,10 @@ export const DashboardPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
         <div>
           <h1 className={`text-2xl font-bold tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-            Panel de Control Estratégico
+            Resumen general
           </h1>
           <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Resumen operativo de compras, ventas, cobranzas e inventario. Periodo: Junio 2026
+            Operaciones del periodo: {periodLabel}. Moneda: {currency}.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -281,17 +92,30 @@ export const DashboardPage: React.FC = () => {
             Actualizar
           </button>
           <button 
-            onClick={handleExportPDF} 
+            onClick={handleExportPDF}
+            disabled={Boolean(inputs.error)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors shadow-sm bg-blue-600 hover:bg-blue-700 shadow-blue-600/20"
           >
             <Download size={16} />
-            Exportar Reporte PDF
+            Resumen PDF
           </button>
         </div>
       </div>
 
-      {/* Contenedor que será capturado por html2canvas */}
-      <div ref={dashboardRef} className="space-y-6">
+      <div className={`flex flex-wrap items-end gap-4 p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200'}`}>
+        <label className="text-sm">Periodo<select aria-label="Periodo" value={period} onChange={e => setPeriod(e.target.value as Period)} className="block mt-1 p-2 border rounded bg-transparent"><option value="weekly">Semanal</option><option value="monthly">Mensual</option><option value="yearly">Anual</option></select></label>
+        <label className="text-sm">Fecha de referencia<input aria-label="Fecha de referencia" type="date" value={reference} onChange={e => { if (dateKey(e.target.value)) setReference(e.target.value); }} className="block mt-1 p-2 border rounded bg-transparent" /></label>
+        <label className="text-sm">Moneda<select aria-label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)} className="block mt-1 p-2 border rounded bg-transparent"><option value="PEN">PEN</option><option value="USD">USD</option></select></label>
+        <button type="button" className="px-3 py-2 border rounded text-sm" onClick={() => exportAnalysis('summary', 'CSV')} disabled={Boolean(inputs.error)}>Resumen CSV</button>
+        <button type="button" className="px-3 py-2 border rounded text-sm" onClick={() => download(JSON.stringify(commercialSnapshot(localStorage), null, 2), `respaldo_comercial_${Date.now()}.json`, 'application/json')}>Descargar respaldo</button>
+      </div>
+      {inputs.error && <p role="alert" className="p-4 border border-red-300 rounded text-red-600">{inputs.error}</p>}
+      {!inputs.error && <div className="text-xs text-slate-500 space-y-1">
+        <p>Los importes de ventas incluyen IGV; compras representa órdenes emitidas. Sin conversión entre monedas. Los saldos pendientes y las existencias son actuales, sin filtro de periodo.</p>
+        {data.warnings.map(warning => <p key={warning}>{warning}</p>)}
+        {data.ventasTotales === 0 && data.comprasTotales === 0 && <p role="status">Sin operaciones para este periodo y moneda.</p>}
+      </div>}
+      {!inputs.error && <div ref={dashboardRef} className="space-y-6">
         
         {/* KPI Cards Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -300,13 +124,11 @@ export const DashboardPage: React.FC = () => {
           <motion.div variants={itemVariants} className={`col-span-1 lg:col-span-2 p-5 rounded-2xl border ${darkMode ? 'bg-gradient-to-br from-blue-900/40 to-slate-900 border-blue-500/20' : 'bg-white border-blue-100 shadow-sm'}`}>
             <div className="flex justify-between items-start mb-2">
               <p className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>Ventas del Periodo</p>
-              <div className="flex items-center gap-1 bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-xs font-bold">
-                <TrendingUp size={14} /> +12.4%
-              </div>
+
             </div>
             <h2 className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.ventasTotales)}</h2>
             <div className={`mt-4 pt-4 border-t ${darkMode ? 'border-slate-800/50' : 'border-slate-100'} text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'} leading-relaxed`}>
-              Margen bruto de <span className="font-bold text-emerald-500">{data.margen}%</span>. <span className="text-rose-500 font-bold">{data.stockBajo} ref.</span> bajo stock.
+              Diferencia ventas menos compras: <span className="font-bold">{formatCurrency(data.diferencia)}</span>. No es margen bruto: falta un costo de ventas fiable. <span className="text-rose-500 font-bold">{data.stockBajo} ref.</span> bajo stock.
             </div>
           </motion.div>
 
@@ -314,9 +136,7 @@ export const DashboardPage: React.FC = () => {
           <motion.div variants={itemVariants} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex justify-between items-start mb-3">
               <div className={`p-2 rounded-lg ${darkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'}`}><ShoppingCart size={18} /></div>
-              <span className="flex items-center text-[11px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-500/10 dark:text-amber-400 px-1.5 py-0.5 rounded">
-                <TrendingUp size={10} className="mr-1" /> 11.2%
-              </span>
+
             </div>
             <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Compras</p>
             <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.comprasTotales)}</h3>
@@ -327,7 +147,7 @@ export const DashboardPage: React.FC = () => {
             <div className="flex justify-between items-start mb-3">
               <div className={`p-2 rounded-lg ${darkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-600'}`}><DollarSign size={18} /></div>
             </div>
-            <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Ctas. Pendientes</p>
+            <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Saldo pendiente actual</p>
             <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{formatCurrency(data.ctasPendientes)}</h3>
           </motion.div>
 
@@ -337,7 +157,7 @@ export const DashboardPage: React.FC = () => {
               <div className={`p-2 rounded-lg ${darkMode ? 'bg-orange-500/10 text-orange-400' : 'bg-orange-50 text-orange-600'}`}><AlertCircle size={18} /></div>
               <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse mt-1 mr-1"></div>
             </div>
-            <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Stock Crítico</p>
+            <p className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Stock crítico actual</p>
             <h3 className={`text-xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-slate-900'}`}>{data.stockBajo} SKU</h3>
           </motion.div>
         </div>
@@ -346,14 +166,15 @@ export const DashboardPage: React.FC = () => {
         <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[380px] flex flex-col`}>
           <div className="mb-4">
             <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
-            <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Últimos 6 meses</p>
+            <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{periodLabel} · {currency}</p>
+            {exportButtons('comparison')}
           </div>
           <div className="flex-1 w-full min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `S/ ${(val / 1000)}k`} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `${currency} ${(val / 1000)}k`} />
                 <Tooltip 
                   cursor={{ fill: darkMode ? '#1e293b' : '#f8fafc' }}
                   contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
@@ -373,8 +194,9 @@ export const DashboardPage: React.FC = () => {
           {/* Ventas de la semana (Area Chart) */}
           <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
             <div className="mb-2">
-              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas de la semana</h3>
-              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>ÚLTIMOS 7 DÍAS</p>
+              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas del periodo</h3>
+              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{periodLabel} · {currency}</p>
+              {exportButtons('sales')}
             </div>
             <div className="flex-1 w-full min-h-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -400,11 +222,13 @@ export const DashboardPage: React.FC = () => {
           {/* Participación por línea (Pie Chart) */}
           <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
             <div className="mb-2">
-              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Participación por línea</h3>
-              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>JUNIO 2026</p>
+              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Existencias por categoría a precio de venta</h3>
+              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Inventario actual · PEN · Sin filtro de periodo</p>
+              <p className="text-xs text-slate-500">Stock × precio de venta; no ventas realizadas ni valorización al costo.</p>
+              {exportButtons('inventory')}
             </div>
             <div className="flex-1 w-full min-h-0 relative">
-              <ResponsiveContainer width="100%" height="100%">
+              {data.inventoryTotal === 0 ? <p role="status" className="p-6 text-sm text-slate-500">Sin datos: el valor total de las existencias es cero.</p> : <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={data.pieData}
@@ -424,13 +248,13 @@ export const DashboardPage: React.FC = () => {
                     contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
                   />
                 </PieChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer>}
               {/* Custom Legend */}
               <div className="flex flex-wrap justify-center gap-4 mt-2">
                 {data.pieData.map((entry, index) => (
                   <div key={index} className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></div>
-                    <span className={`text-[11px] font-medium ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{entry.name}</span>
+                    <span className={`text-[11px] font-medium ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{entry.name}: {entry.percentage.toFixed(2)}%</span>
                   </div>
                 ))}
               </div>
@@ -440,35 +264,35 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Alerta Activa - Stock */}
-        <motion.div variants={itemVariants} className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200'}`}>
-          <div className={`px-5 py-3 border-b flex items-center justify-between ${darkMode ? 'bg-orange-950/30 border-orange-900/50' : 'bg-orange-50 border-orange-100'}`}>
-            <div className="flex items-center gap-2 text-orange-600 dark:text-orange-500 font-bold text-sm tracking-widest uppercase">
-              <AlertTriangle size={16} /> ALERTA ACTIVA
+        <motion.div variants={itemVariants} className={`rounded-2xl border overflow-hidden ${inventoryAlert ? (darkMode ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200') : (darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200')}`}>
+          <div className={`px-5 py-3 border-b flex items-center justify-between ${inventoryAlert ? (darkMode ? 'bg-orange-950/30 border-orange-900/50' : 'bg-orange-50 border-orange-100') : (darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100')}`}>
+            <div className={`flex items-center gap-2 font-bold text-sm tracking-widest uppercase ${inventoryAlert ? 'text-orange-600 dark:text-orange-500' : 'text-slate-500'}`}>
+              <AlertTriangle size={16} /> {inputs.error ? 'ESTADO NO DISPONIBLE' : data.stockList.some(p => p.state === 'INCONSISTENTE') ? 'REVISAR INCONSISTENCIAS' : data.stockBajo > 0 ? `ALERTA ACTIVA: ${data.stockBajo}` : 'SIN ALERTAS DE STOCK'}
             </div>
-            <span className="text-xs font-mono text-orange-500 dark:text-orange-600/70">ALR-3041</span>
+            <span className="text-xs font-mono text-orange-500 dark:text-orange-600/70">Inventario actual</span>
           </div>
           
           <div className="p-6">
             <h4 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
               {data.stockBajo > 0 
-                ? `Stock por debajo del mínimo en ${data.stockBajo} referencias` 
-                : 'Inventario en niveles óptimos'}
+                ? `Sin existencias o stock bajo en ${data.stockBajo} referencias`
+                : inputs.error ? 'No se pudo leer el inventario' : data.stockList.some(p => p.state === 'INCONSISTENTE') ? 'Existen saldos o minimos inconsistentes' : 'Sin productos criticos'}
             </h4>
             <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               {data.stockBajo > 0
                 ? 'Las existencias actuales requieren reposición. Se recomienda emitir orden de compra.'
-                : 'Todas las referencias activas cuentan con existencias suficientes según el stock de seguridad.'}
+                : 'Consulta los estados actuales de las referencias; no se reconstruyeron saldos desde el Kardex.'}
             </p>
             
             <div className="mt-6 space-y-4">
-              {data.stockList.filter(item => item.current <= item.min).length === 0 ? (
-                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No hay alertas críticas pendientes.</p>
+              {data.stockList.filter(item => item.state !== 'NORMAL').length === 0 ? (
+                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{inputs.error ? 'No se pudo comprobar el estado del inventario.' : 'No hay alertas criticas pendientes.'}</p>
               ) : (
-                data.stockList.filter(item => item.current <= item.min).map((item) => (
+                data.stockList.filter(item => item.state !== 'NORMAL').map((item) => (
                   <div key={item.id} className={`flex items-center justify-between pb-4 border-b last:border-0 last:pb-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
                     <div>
                       <p className={`text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>{item.name}</p>
-                      <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{item.sku}</p>
+                      <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{item.sku} / {item.state === 'INCONSISTENTE' ? 'Inconsistencia: revisar saldo o minimo' : item.state === 'AGOTADO' ? 'Sin existencias' : 'Stock bajo'}</p>
                     </div>
                     <div className="text-right">
                       <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{item.current}</span>
@@ -484,11 +308,9 @@ export const DashboardPage: React.FC = () => {
                 onClick={() => navigate('/orden-compra')}
                 className="flex-1 bg-orange-100 hover:bg-orange-200 text-orange-700 dark:bg-orange-500/10 dark:hover:bg-orange-500/20 dark:text-orange-400 py-2.5 rounded-lg text-sm font-bold transition-colors"
               >
-                Generar orden de compra
+                Ir a crear orden de compra
               </button>
-              <button className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-colors border ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                Posponer
-              </button>
+
             </div>
           </div>
         </motion.div>
@@ -496,7 +318,7 @@ export const DashboardPage: React.FC = () => {
         {/* Ultimos Movimientos */}
         <motion.div variants={itemVariants} className={`rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
           <div className={`px-6 py-4 border-b flex justify-between items-center ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-            <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Últimos movimientos</h3>
+            <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Últimos movimientos de Kardex · {periodLabel} · PEN</h3>
           </div>
           <div className="p-0">
             <table className="w-full text-left text-sm">
@@ -525,7 +347,7 @@ export const DashboardPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-right font-medium">
                       <span className={mov.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
-                        {mov.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(mov.monto)}
+                        {mov.tipo === 'ingreso' ? '+' : '-'}{new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(mov.monto)}
                       </span>
                     </td>
                   </tr>
@@ -535,7 +357,7 @@ export const DashboardPage: React.FC = () => {
           </div>
         </motion.div>
         
-      </div>
+      </div>}
     </motion.div>
   );
 };

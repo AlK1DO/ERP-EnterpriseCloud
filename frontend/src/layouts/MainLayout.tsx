@@ -3,9 +3,10 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon
+  Settings, Menu, Bell, Sun, Moon, Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../modules/auth/AuthContext';
 
 const MENU_SECTIONS = [
   {
@@ -23,6 +24,7 @@ const MENU_SECTIONS = [
   {
     title: 'VENTAS',
     items: [
+      { name: 'Clientes', path: '/clientes', icon: <Users size={20} /> },
       { name: 'Orden de venta', path: '/orden-venta', icon: <Receipt size={20} /> },
       { name: 'Facturación', path: '/facturacion', icon: <FileText size={20} /> },
       { name: 'Estado de cuenta', path: '/estado-cuenta', icon: <FileBarChart size={20} /> },
@@ -46,6 +48,9 @@ const MENU_SECTIONS = [
 ];
 
 export const MainLayout: React.FC = () => {
+  const auth = useAuth();
+  const identity = auth.user?.email ?? 'Usuario';
+  const initials = identity.slice(0, 2).toUpperCase();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -104,7 +109,7 @@ export const MainLayout: React.FC = () => {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6 custom-scrollbar">
-          {MENU_SECTIONS.map((section, idx) => (
+          {MENU_SECTIONS.filter(section => section.title !== 'ADMINISTRACIÓN' || auth.role === 'admin').map((section, idx) => (
             <div key={idx}>
               {sidebarOpen && (
                 <p className={`px-3 mb-2 text-[10px] font-bold tracking-widest uppercase ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -182,8 +187,13 @@ export const MainLayout: React.FC = () => {
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900"></span>
             </button>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm cursor-pointer border-2 border-white dark:border-slate-800">
-              MR
+            <div className="hidden sm:block text-xs text-right">
+              <p>{identity}</p>
+              <p>{auth.company?.tradeName || auth.company?.legalName || (auth.role === 'admin' ? 'Administrador' : 'Cliente')}</p>
+            </div>
+            <button type="button" onClick={() => void auth.signOut()} className="text-xs font-semibold px-3 py-2 rounded-lg border border-inherit">Cerrar sesión</button>
+            <div title={identity} className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm cursor-pointer border-2 border-white dark:border-slate-800">
+              {initials}
             </div>
           </div>
         </header>

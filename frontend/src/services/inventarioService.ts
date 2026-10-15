@@ -1,4 +1,10 @@
+import { assertInventoryReady, commitInventoryTransaction, withInventoryLock } from './inventoryTransaction.ts';
+import { assertBillingReady } from './billingTransaction.ts';
+import { validateProduct, assertProductDeletable } from './productCatalog.ts';
+
 export interface Producto {
+  codigosAnteriores?: string[];
+  descripcionesAnteriores?: string[];
   id: string;
   codigo: string;
   descripcion: string;
@@ -12,6 +18,8 @@ export interface Producto {
 }
 
 export interface MovimientoKardex {
+  recepcion_id?: string;
+  orden_id?: string | null;
   id: string;
   fecha: string;
   productoId: string;
@@ -81,114 +89,63 @@ const PRODUCTOS_BASE: Producto[] = [
 
 export const inventarioService = {
   getProductos: async (): Promise<Producto[]> => {
+    assertInventoryReady(localStorage);
     const data = localStorage.getItem(LOCAL_STORAGE_PRODUCTS);
-    let rawList: any[] = [];
-    if (!data) {
-      rawList = PRODUCTOS_BASE;
-      localStorage.setItem(LOCAL_STORAGE_PRODUCTS, JSON.stringify(PRODUCTOS_BASE));
-    } else {
-      try {
-        rawList = JSON.parse(data);
-        if (!Array.isArray(rawList)) rawList = PRODUCTOS_BASE;
-      } catch (e) {
-        rawList = PRODUCTOS_BASE;
-      }
+    if (data === null) {
+      commitInventoryTransaction(localStorage, { [LOCAL_STORAGE_PRODUCTS]: JSON.stringify(PRODUCTOS_BASE) }, 'catalogo-inicial');
+      return JSON.parse(JSON.stringify(PRODUCTOS_BASE));
     }
-
-    // Normalizar datos legacy de versiones previas
-    const normalizados: Producto[] = rawList.map((p, idx) => {
-      const baseMatch = PRODUCTOS_BASE.find(b => b.codigo === p.codigo);
-      const precioVenta = Number(p.precioVenta) || (baseMatch?.precioVenta ?? 100);
-      const costoUnitario = p.costoUnitario !== undefined 
-        ? Number(p.costoUnitario) 
-        : (baseMatch?.costoUnitario ?? Number((precioVenta * 0.75).toFixed(2)));
-
-      return {
-        id: p.id || `prod-${idx + 1}`,
-        codigo: p.codigo || `PROD-${idx + 1}`,
-        descripcion: p.descripcion || 'Producto sin descripción',
-        categoria: p.categoria || (baseMatch?.categoria ?? 'General'),
-        unidad: p.unidad || (baseMatch?.unidad ?? 'NIU'),
-        costoUnitario: isNaN(costoUnitario) ? 0 : costoUnitario,
-        precioVenta: isNaN(precioVenta) ? 0 : precioVenta,
-        stock: Number(p.stock) || 0,
-        stockMinimo: Number(p.stockMinimo) || (baseMatch?.stockMinimo ?? 5),
-        almacen: p.almacen || (baseMatch?.almacen ?? 'Almacén Central')
-      };
-    });
-
-    localStorage.setItem(LOCAL_STORAGE_PRODUCTS, JSON.stringify(normalizados));
-    return normalizados;
-  },
-
-  saveProductos: (productos: Producto[]) => {
-    localStorage.setItem(LOCAL_STORAGE_PRODUCTS, JSON.stringify(productos));
+    const products = JSON.parse(data);
+    if (!Array.isArray(products) || products.some(p => !p || typeof p !== 'object' || Array.isArray(p))) throw new Error('Catalogo invalido; se conservaron los datos originales.');
+    // Lectura sin normalizar ni reconstruir saldos desde un Kardex incompleto.
+    return products;
   },
 
   createProducto: async (data: Omit<Producto, 'id' | 'stock'> & { stockInicial?: number }): Promise<Producto> => {
+    return withInventoryLock(async () => {
+      assertBillingReady(localStorage);
+      if ((data.stockInicial !== undefined && data.stockInicial !== 0) || data.costoUnitario !== 0) throw new Error('El producto nuevo inicia con stock y costo cero. Registra la entrada en Ingreso al Kardex.');
+      const productos = await inventarioService.getProductos();
+      const nuevo: Producto = { ...data, id: crypto.randomUUID(), codigo: data.codigo.trim().toUpperCase(), descripcion: data.descripcion.trim(), stock: 0, costoUnitario: 0 };
+      delete (nuevo as Producto & {stockInicial?: number}).stockInicial;
+      validateProduct(nuevo, productos);
+      commitInventoryTransaction(localStorage, { [LOCAL_STORAGE_PRODUCTS]: JSON.stringify([...productos, nuevo]) }, nuevo.id);
+      return nuevo;
+    });
+  },
+  updateProducto: async (id: string, data: Partial<Producto>): Promise<Producto> => withInventoryLock(async () => {
+    assertBillingReady(localStorage);
+    if (['stock','costoUnitario','id'].some(key => Object.prototype.hasOwnProperty.call(data,key))) throw new Error('Stock y costo promedio solo cambian mediante movimientos registrados; el ID es inmutable.');
     const productos = await inventarioService.getProductos();
-    const id = 'prod-' + Date.now();
-    const stock = Number(data.stockInicial || 0);
-
-    const nuevo: Producto = {
-      id,
-      codigo: data.codigo.trim().toUpperCase(),
-      descripcion: data.descripcion.trim(),
-      categoria: data.categoria || 'General',
-      unidad: data.unidad || 'NIU',
-      costoUnitario: Number(data.costoUnitario) || 0,
-      precioVenta: Number(data.precioVenta) || 0,
-      stock,
-      stockMinimo: Number(data.stockMinimo) || 0,
-      almacen: data.almacen || 'Almacén Central'
-    };
-
-    productos.push(nuevo);
-    inventarioService.saveProductos(productos);
-
-    if (stock > 0) {
-      await inventarioService.registrarMovimiento({
-        productoId: nuevo.id,
-        productoCodigo: nuevo.codigo,
-        productoDescripcion: nuevo.descripcion,
-        tipoMovimiento: 'ENTRADA',
-        tipoOperacion: 'INGRESO_AJUSTE',
-        documentoTipo: 'INVENTARIO INICIAL',
-        documentoNumero: 'INV-INI',
-        detalle: 'Inventario inicial al crear producto',
-        almacen: nuevo.almacen,
-        cantidad: stock,
-        costoUnitario: nuevo.costoUnitario
-      });
-    }
-
-    return nuevo;
-  },
-
-  updateProducto: async (id: string, data: Partial<Producto>): Promise<Producto> => {
+    const index = productos.findIndex(p => p.id === id);
+    if (index < 0) throw new Error('Producto no encontrado');
+    const allowed = ['codigo','descripcion','categoria','precioVenta','stockMinimo','unidad','almacen'];
+    if (Object.keys(data).some(key => !allowed.includes(key))) throw new Error('Campo de producto no editable.');
+    const updated = { ...productos[index], ...data };
+    updated.codigo = updated.codigo.trim().toUpperCase(); updated.descripcion = updated.descripcion.trim();
+    validateProduct(updated, productos);
+    updated.codigosAnteriores = [...new Set([...(productos[index].codigosAnteriores ?? []), productos[index].codigo])];
+    updated.descripcionesAnteriores = [...new Set([...(productos[index].descripcionesAnteriores ?? []), productos[index].descripcion])];
+    productos[index] = updated;
+    commitInventoryTransaction(localStorage, { [LOCAL_STORAGE_PRODUCTS]: JSON.stringify(productos) }, id);
+    return updated;
+  }),
+  deleteProducto: async (id: string): Promise<void> => withInventoryLock(async () => {
+    assertBillingReady(localStorage);
     const productos = await inventarioService.getProductos();
-    const idx = productos.findIndex(p => p.id === id);
-    if (idx === -1) throw new Error('Producto no encontrado');
-
-    productos[idx] = { ...productos[idx], ...data };
-    inventarioService.saveProductos(productos);
-    return productos[idx];
-  },
-
-  deleteProducto: async (id: string): Promise<void> => {
-    let productos = await inventarioService.getProductos();
-    productos = productos.filter(p => p.id !== id);
-    inventarioService.saveProductos(productos);
-  },
+    const product = productos.find(p => p.id === id);
+    if (!product) throw new Error('Producto no encontrado');
+    assertProductDeletable(localStorage, product);
+    commitInventoryTransaction(localStorage, { [LOCAL_STORAGE_PRODUCTS]: JSON.stringify(productos.filter(p => p.id !== id)) }, id);
+  }),
 
   getMovimientos: async (): Promise<MovimientoKardex[]> => {
+    assertInventoryReady(localStorage);
     const data = localStorage.getItem(LOCAL_STORAGE_KARDEX);
     if (!data) return [];
-    return JSON.parse(data);
-  },
-
-  saveMovimientos: (movimientos: MovimientoKardex[]) => {
-    localStorage.setItem(LOCAL_STORAGE_KARDEX, JSON.stringify(movimientos));
+    const movements = JSON.parse(data);
+    if (!Array.isArray(movements) || movements.some(m => !m || typeof m !== 'object')) throw new Error('Historial invalido; no se reemplazaron movimientos.');
+    return movements;
   },
 
   registrarMovimiento: async (params: {
@@ -204,14 +161,19 @@ export const inventarioService = {
     cantidad: number;
     costoUnitario: number;
   }): Promise<MovimientoKardex> => {
+    return withInventoryLock(async () => {
+    assertBillingReady(localStorage);
     const productos = await inventarioService.getProductos();
-    const producto = productos.find(p => p.id === params.productoId || p.codigo === params.productoCodigo);
+    const matches = productos.filter(p => params.productoId ? p.id === params.productoId : p.codigo === params.productoCodigo);
+    const producto = matches.length === 1 ? matches[0] : undefined;
     if (!producto) throw new Error('Producto no existe para kardex');
 
     const movimientos = await inventarioService.getMovimientos();
     const cantidad = Number(params.cantidad);
     const costo = Number(params.costoUnitario);
 
+    if (!Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(costo) || costo < 0 || !['ENTRADA','SALIDA'].includes(params.tipoMovimiento)) throw new Error('Cantidad, costo o movimiento invalido.');
+    if (![producto.stock, producto.costoUnitario].every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0)) throw new Error('Saldo previo inconsistente; requiere revision sin correccion automatica.');
     let nuevoStock = producto.stock;
     let nuevoCostoPromedio = producto.costoUnitario;
 
@@ -270,13 +232,13 @@ export const inventarioService = {
       };
     }
 
+    if (![nuevoStock, nuevoCostoPromedio, nuevoStock * nuevoCostoPromedio].every(Number.isFinite)) throw new Error('El movimiento excede el rango numerico permitido.');
     producto.stock = nuevoStock;
     producto.costoUnitario = nuevoCostoPromedio;
-    inventarioService.saveProductos(productos);
-
     movimientos.unshift(movimiento);
-    inventarioService.saveMovimientos(movimientos);
+    commitInventoryTransaction(localStorage, { [LOCAL_STORAGE_PRODUCTS]: JSON.stringify(productos), [LOCAL_STORAGE_KARDEX]: JSON.stringify(movimientos) }, movimiento.id);
 
     return movimiento;
+    });
   }
 };

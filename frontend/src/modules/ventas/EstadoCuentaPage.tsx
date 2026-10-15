@@ -1,92 +1,46 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Download, Printer, Search, FileBarChart } from 'lucide-react';
+import { accountsCsv, filterAccounts, invoiceKey, readBillingData, sumAccounts } from '../../services/billing';
+import type { BillingRow } from '../../services/billing';
+import { recoverBilling, withBillingLock } from '../../services/billingTransaction';
 
-export interface ItemEstadoCuenta {
-  tipo: string;
-  fecha: string;
-  nro: string;
-  razonSocial: string;
-  productos: string;
-  vendedor: string;
-  estado: string;
-  total: number;
-  saldo: number;
-  pagado: number;
-}
+import { PaymentDialog } from './PaymentDialog';
 
 export const EstadoCuentaPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
-  
   const [filterText, setFilterText] = useState('');
-  const [dateStart, setDateStart] = useState('2026-04-01');
-  const [dateEnd, setDateEnd] = useState('2026-06-30');
-
-  const [allData, setAllData] = useState<ItemEstadoCuenta[]>(() => {
-    const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
-    if (cachedCuenta) {
-      try {
-        const localCuenta = JSON.parse(cachedCuenta);
-        return Array.isArray(localCuenta) ? localCuenta : [];
-      } catch (e) {
-        return [];
-      }
-    }
-    return [];
-  });
-
-  // Filtramos la data en tiempo real
-  const filteredData = useMemo(() => {
-    return allData.filter(d => 
-      d.razonSocial.toLowerCase().includes(filterText.toLowerCase()) ||
-      d.nro.toLowerCase().includes(filterText.toLowerCase()) ||
-      d.vendedor.toLowerCase().includes(filterText.toLowerCase())
-    );
-  }, [filterText]);
-
-  // Agrupamos por tipo de documento
+  const [generatedAt] = useState(() => new Date().toLocaleDateString('es-PE', { timeZone: 'America/Lima' }));
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+  const [currency, setCurrency] = useState('PEN');
+  const [allData, setAllData] = useState<BillingRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<BillingRow | null>(null);
+  const alive = useRef(true);
+  async function reload() {
+    try {
+      const data = await withBillingLock(() => { recoverBilling(localStorage); return readBillingData(localStorage); });
+      if (alive.current) { setAllData(data.invoices); setError(null); }
+    } catch (failure) { if (alive.current) setError(failure instanceof Error ? failure.message : 'No se pudieron leer los comprobantes.'); }
+  }
+  useEffect(() => { alive.current = true; void Promise.resolve().then(reload); return () => { alive.current = false; }; }, []);
+  const filteredData = useMemo(() => filterAccounts(allData, filterText, dateStart, dateEnd, currency), [allData, filterText, dateStart, dateEnd, currency]);
   const groupedData = useMemo(() => {
-    const groups: Record<string, ItemEstadoCuenta[]> = {};
-    filteredData.forEach(item => {
-      if (!groups[item.tipo]) groups[item.tipo] = [];
-      groups[item.tipo].push(item);
-    });
+    const groups: Record<string, BillingRow[]> = {};
+    filteredData.forEach(item => { const key = `${item.tipo} · ${currency}`; (groups[key] ??= []).push(item); });
     return groups;
-  }, [filteredData]);
-
-  const formatCurrency = (val: number) => val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
+  }, [filteredData, currency]);
+  const formatCurrency = (value: number) => Number.isFinite(Number(value)) ? `${currency} ${Number(value).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No registrado';
+  function totals(items: BillingRow[]) { try { return sumAccounts(items); } catch { return { total: NaN, paid: NaN, balance: NaN }; } }
   const exportToCSV = () => {
-    const headers = ['Tipo', 'Fecha Venta', 'Nro Documento', 'Razón Social', 'Detalle de Productos', 'Vendedor', 'Estado', 'Total S/.', 'Saldo S/.', 'Pagado S/.'];
-    let csvContent = headers.join(';') + '\n';
-    
-    filteredData.forEach(item => {
-      const row = [
-        item.tipo,
-        item.fecha,
-        item.nro,
-        `"${item.razonSocial}"`,
-        `"${item.productos}"`,
-        item.vendedor,
-        item.estado,
-        item.total,
-        item.saldo,
-        item.pagado
-      ];
-      csvContent += row.join(';') + '\n';
-    });
-
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' }); // Add BOM for Excel UTF-8 support
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'estado_de_cuenta_ventas.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    let csv: string;
+    try { csv = accountsCsv(allData, filterText, dateStart, dateEnd, currency); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'No se pudo exportar.'); return; }
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a'); link.href = url; link.download = `estado_de_cuenta_${currency}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -142,9 +96,12 @@ export const EstadoCuentaPage: React.FC = () => {
         </div>
       </div>
 
+      {error && <p role="alert" className="mb-4 p-4 border rounded-xl text-red-500">{error}</p>}
+      {dateStart && dateEnd && dateStart > dateEnd && <p role="alert" className="mb-3 text-red-500">La fecha inicial no puede superar la final.</p>}
+      <p className="mb-4 text-xs text-slate-500">Moneda: {currency}. Fechas: {dateStart || 'Sin inicio'} al {dateEnd || 'Sin fin'}. Registros antiguos sin moneda: PEN según el formulario original.</p>
       <div className="hidden print:block mb-6">
         <h2 className="text-2xl font-bold mb-1">Estado de cuenta de ventas</h2>
-        <p className="text-sm text-gray-600">Reporte generado el {new Date().toLocaleDateString()}</p>
+        <p className="text-sm text-gray-600">Reporte generado el {generatedAt}</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -166,7 +123,7 @@ export const EstadoCuentaPage: React.FC = () => {
                   Detalle del estado de cuenta
                 </h2>
                 <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-gray-500'}`}>
-                  {filteredData.length} documentos • Clic en una fila para gestionar pagos
+                  {filteredData.length} documentos • Usa Cobrar o Ver pagos para consultar el historial
                 </p>
               </div>
             </div>
@@ -182,16 +139,17 @@ export const EstadoCuentaPage: React.FC = () => {
                   <th className="px-3 py-2">Detalle de Productos</th>
                   <th className="px-3 py-2">Vendedor</th>
                   <th className="px-3 py-2 text-center">Estado</th>
-                  <th className="px-3 py-2 text-right">Total S/.</th>
-                  <th className="px-3 py-2 text-right">Saldo S/.</th>
-                  <th className="px-3 py-2 text-right first:rounded-l-lg last:rounded-r-lg">Pagado S/.</th>
+                  <th className="px-3 py-2 text-right">Total ({currency})</th>
+                  <th className="px-3 py-2 text-right">Saldo ({currency})</th>
+                  <th className="px-3 py-2 text-right first:rounded-l-lg last:rounded-r-lg">Pagado ({currency})</th>
+                  <th className="px-3 py-2 print:hidden">Acción</th>
                 </tr>
               </thead>
               
               {Object.keys(groupedData).length === 0 ? (
                 <tbody>
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center">
+                    <td colSpan={10} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center opacity-50">
                         <FileBarChart size={32} className="mb-3 text-gray-400" />
                         <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
@@ -203,14 +161,14 @@ export const EstadoCuentaPage: React.FC = () => {
                 </tbody>
               ) : (
                 Object.entries(groupedData).map(([tipo, items]) => {
-                  const totalMonto = items.reduce((acc, curr) => acc + curr.total, 0);
-                  const totalSaldo = items.reduce((acc, curr) => acc + curr.saldo, 0);
-                  const totalPagado = items.reduce((acc, curr) => acc + curr.pagado, 0);
+                  const totalMonto = totals(items).total / 100;
+                  const totalSaldo = totals(items).balance / 100;
+                  const totalPagado = totals(items).paid / 100;
                   
                   return (
                     <tbody key={tipo} className="print:divide-y print:divide-gray-400">
                       <tr>
-                        <td colSpan={9} className="p-0 pt-3 print:pt-0">
+                        <td colSpan={10} className="p-0 pt-3 print:pt-0">
                           <div className={`mb-1 px-3 py-2 rounded-xl flex items-center gap-2 ${
                             darkMode ? 'bg-indigo-900/30 border border-indigo-500/20' : 'bg-indigo-50 border border-indigo-100/50'
                           } print:bg-transparent print:border-b-2 print:border-black print:rounded-none print:px-0`}>
@@ -256,6 +214,8 @@ export const EstadoCuentaPage: React.FC = () => {
                             darkMode ? 'text-slate-300' : 'text-slate-900'
                           }`}>
                             {item.productos}
+                            {(item.antecedente_pago?.importe ?? (!item.pagos?.length ? item.pagado : 0)) > 0 && <p className="mt-1 text-orange-500">Antecedente sin detalle: {formatCurrency(item.antecedente_pago?.importe ?? item.pagado)}</p>}
+                            {item.pagos?.map((payment: BillingRow) => <p key={payment.id} className="mt-1">Pago {payment.fecha}: {formatCurrency(payment.importe)} · {payment.medio} · {payment.referencia || 'Sin referencia'}</p>)}
                           </td>
                           <td className={`px-3 py-2.5 font-bold print:text-black whitespace-nowrap ${
                             darkMode ? 'text-white' : 'text-black'
@@ -287,6 +247,7 @@ export const EstadoCuentaPage: React.FC = () => {
                           } print:text-black`}>
                             {formatCurrency(item.pagado)}
                           </td>
+                          <td className="px-3 py-2.5 print:hidden"><button type="button" onClick={() => setSelected(item)} className="px-3 py-2 rounded-lg bg-sky-500 text-white font-semibold whitespace-nowrap">{item.saldo > 0 ? 'Cobrar' : 'Ver pagos'}</button></td>
                         </tr>
                       ))}
                       
@@ -341,6 +302,7 @@ export const EstadoCuentaPage: React.FC = () => {
               </div>
               
               <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 text-xs">Moneda<select aria-label="Moneda del estado de cuenta" value={currency} onChange={event => setCurrency(event.target.value)} className={`block w-full mt-1 p-2 border rounded-lg ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}><option value="PEN">PEN</option><option value="USD">USD</option></select></label>
                 <div>
                   <label className={`block text-[10px] font-bold tracking-wider uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     Fecha de Inicio
@@ -370,12 +332,10 @@ export const EstadoCuentaPage: React.FC = () => {
               </div>
               
               <button 
-                onClick={() => {
-                  // Manual search trigger removed to favor real-time updates
-                }}
+                onClick={() => void reload()}
                 className="w-full mt-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white py-2.5 rounded-lg font-bold text-sm transition-colors shadow-sm"
               >
-                Consultar
+                Actualizar / recuperar
               </button>
             </div>
           </div>
@@ -389,9 +349,9 @@ export const EstadoCuentaPage: React.FC = () => {
             
             <div className="space-y-6 print:grid print:grid-cols-2 print:gap-8 print:space-y-0">
               {Object.entries(groupedData).map(([tipo, items]) => {
-                const totalMonto = items.reduce((acc, curr) => acc + curr.total, 0);
-                const totalSaldo = items.reduce((acc, curr) => acc + curr.saldo, 0);
-                const totalPagado = items.reduce((acc, curr) => acc + curr.pagado, 0);
+                const totalMonto = totals(items).total / 100;
+                const totalSaldo = totals(items).balance / 100;
+                const totalPagado = totals(items).paid / 100;
                 
                 return (
                   <div key={tipo} className={`pb-4 border-b last:border-0 last:pb-0 ${darkMode ? 'border-slate-800' : 'border-gray-100'} print:border-b-0 print:border-l-4 print:border-black print:pl-4 print:pb-0`}>
@@ -446,6 +406,7 @@ export const EstadoCuentaPage: React.FC = () => {
           
         </div>
       </div>
+      {selected && <PaymentDialog key={invoiceKey(selected)} row={selected} darkMode={darkMode} onClose={() => setSelected(null)} onSaved={updated => { setAllData(previous => previous.map(row => invoiceKey(row) === invoiceKey(updated) ? updated : row)); setSelected(updated); setError(null); }} />}
     </motion.div>
   );
 };

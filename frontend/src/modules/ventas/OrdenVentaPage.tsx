@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Search, Package, Receipt, Users, Trash2, CheckCircle
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
+
+import { clientesService, type Cliente } from '../../services/clientesService';
+import { useAuth } from '../auth/AuthContext';
+import { salesClientSnapshot } from './salesClient';
+import { persistSalesOrder } from './salesOrder';
+import { withInventoryLock } from '../../services/inventoryTransaction';
+import { withBillingLock } from '../../services/billingTransaction';
 
 interface ProductLine {
   id: string;
@@ -25,17 +32,23 @@ export const OrdenVentaPage: React.FC = () => {
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedCliente, setSelectedCliente] = useState<any>(null);
+  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [clienteSearch, setClienteSearch] = useState('');
 
-  // Clientes locales
-  const clientesDB = [
-    { nombre: 'Corporación Tecnológica S.A.C.', ruc: '20111111111', condicion: 'Crédito 30 días', tipo: 'Corporativo' },
-    { nombre: 'Universidad Nacional Mayor', ruc: '20222222222', condicion: 'Contado', tipo: 'Educación' },
-    { nombre: 'Grupo Retail del Perú', ruc: '20333333333', condicion: 'Crédito 15 días', tipo: 'Retail' },
-    { nombre: 'Consultores TI Asociados', ruc: '20444444444', condicion: 'Contado', tipo: 'Servicios' },
-    { nombre: 'Julio Yanavelca Yanavilca', ruc: '10748596123', condicion: 'Contado', tipo: 'Persona Natural' },
-  ];
+  const [clientesDB, setClientesDB] = useState<Cliente[]>([]);
+  const [clientError, setClientError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const savePending = useRef(false);
+  const saleId = useRef(`OV-${crypto.randomUUID()}`);
+  const alive = useRef(true);
+  const auth = useAuth();
+  async function refreshClients() {
+    try { const clients = await clientesService.getClientes(); if (alive.current) { setClientesDB(clients); setClientError(null); } }
+    catch { if (alive.current) setClientError('No se pudieron cargar los clientes. Revisa los datos sin reemplazarlos por ejemplos.'); }
+  }
+  useEffect(() => { alive.current = true; void Promise.resolve().then(() => refreshClients()); return () => { alive.current = false; }; }, []);
+  const openClients = () => { if (!savePending.current) { void refreshClients(); setIsModalOpen(true); } };
+  const filteredClients = clientesDB.filter(c => String(c.nombre ?? '').toLowerCase().includes(clienteSearch.toLowerCase()) || String(c.documento ?? '').includes(clienteSearch));
   // Base de datos de productos desde inventarioService
   const [productDB, setProductDB] = useState<Producto[]>([]);
 
@@ -116,84 +129,21 @@ export const OrdenVentaPage: React.FC = () => {
       return;
     }
 
-    const ovId = `OV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
-
-    // 1. Descontar stock y registrar movimiento en Kardex por cada item
-    for (const prod of products) {
-      const match = productDB.find(p => p.codigo === prod.codigo);
-      if (match) {
-        try {
-          await inventarioService.registrarMovimiento({
-            productoId: match.id,
-            productoCodigo: match.codigo,
-            productoDescripcion: match.descripcion,
-            tipoMovimiento: 'SALIDA',
-            tipoOperacion: 'VENTA',
-            documentoTipo: 'ORDEN DE VENTA',
-            documentoNumero: ovId,
-            detalle: `Salida por venta a ${selectedCliente.nombre}`,
-            almacen: match.almacen || 'Almacén Central',
-            cantidad: prod.cantidad,
-            costoUnitario: match.costoUnitario
-          });
-        } catch (err: any) {
-          showToast(`Error al descontar stock: ${err.message}`);
-          return;
-        }
-      }
-    }
-
-    // Refrescar lista de productos con nuevo stock
-    const prodsActualizados = await inventarioService.getProductos();
-    setProductDB(prodsActualizados);
-
-    // 2. Actualizar KPIs y Movimientos en el Dashboard
-    const cached = localStorage.getItem('erp_dashboard_data');
-    if (cached) {
-      const dashboardData = JSON.parse(cached);
-      dashboardData.ventasTotales += total;
-      
-      const today = new Date();
-      const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
-      
-      const newMovement = {
-        id: Date.now(),
-        fecha: dateStr,
-        descripcion: `Venta a ${selectedCliente.nombre.substring(0, 15)}... - ${ovId}`,
-        tipo: 'ingreso',
-        monto: total
-      };
-
-      dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
-      localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
-    }
-
-    // 3. Guardar la Orden de Venta en la base de datos de órdenes
-    const cachedOrders = localStorage.getItem('erp_ordenes_venta');
-    const ordersDB = cachedOrders ? JSON.parse(cachedOrders) : [];
-    
-    // Formatear items para que coincidan con la estructura que espera Facturación
-    const orderItems = products.map(p => ({
-      desc: p.descripcion,
-      cant: p.cantidad,
-      pUnitario: p.precioVenta,
-      total: p.cantidad * p.precioVenta
-    }));
-
-    const newOrder = {
-      id: `OV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`,
-      cliente: selectedCliente.nombre,
-      ruc: selectedCliente.ruc,
-      fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      total: total,
-      vendedor: 'Vendedor Actual',
-      items: orderItems,
-      estado: 'Pendiente'
-    };
-    
-    localStorage.setItem('erp_ordenes_venta', JSON.stringify([newOrder, ...ordersDB]));
-
+    if (savePending.current) return;
+    savePending.current = true; setIsSaving(true);
+    try {
+      const clients = await clientesService.getClientes();
+      if (!alive.current) return;
+      const current = clients.find(client => client.id === selectedCliente.id) ?? null;
+      const snapshot = salesClientSnapshot(current);
+      if (JSON.stringify(snapshot) !== JSON.stringify(salesClientSnapshot(selectedCliente))) throw new Error('Los datos del cliente cambiaron. Vuelve a seleccionarlo.');
+      await withInventoryLock(() => withBillingLock(() => {
+        if (!alive.current) throw new Error('La pantalla se cerró antes de guardar.');
+        return persistSalesOrder(localStorage, saleId.current, current!, products, auth.user?.email ?? '');
+      }));
+      const prodsActualizados = await inventarioService.getProductos();
+      if (!alive.current) return;
+      setProductDB(prodsActualizados);
     showToast(`¡Orden de Venta por S/ ${total.toLocaleString('es-PE', { minimumFractionDigits: 2 })} grabada exitosamente!`);
     
     setProducts([]);
@@ -201,11 +151,16 @@ export const OrdenVentaPage: React.FC = () => {
     setInputCant('');
     setStockDisp('');
     setSelectedCliente(null);
+    saleId.current = `OV-${crypto.randomUUID()}`;
+    } catch (failure) { if (alive.current) showToast(failure instanceof Error ? failure.message : 'No se pudo guardar. Tus datos se mantienen.'); }
+    finally { savePending.current = false; if (alive.current) setIsSaving(false); }
   };
 
   const handleNuevaVenta = () => {
+    if (savePending.current) return;
     if (products.length > 0 || searchQuery || inputCant || selectedCliente) {
       if (window.confirm('¿Estás seguro de limpiar la pantalla para crear una nueva venta?')) {
+        saleId.current = `OV-${crypto.randomUUID()}`;
         setProducts([]);
         setSearchQuery('');
         setInputCant('');
@@ -244,7 +199,7 @@ export const OrdenVentaPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={handleNuevaVenta}
+            disabled={isSaving} onClick={handleNuevaVenta}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-colors border shadow-sm ${
               darkMode ? 'bg-slate-800 border-slate-700 text-sky-400 hover:bg-slate-700' : 'bg-white border-gray-200 text-sky-500 hover:bg-gray-50'
             }`}
@@ -253,7 +208,7 @@ export const OrdenVentaPage: React.FC = () => {
             Nueva venta
           </button>
           <button 
-            onClick={handleSaveOrder}
+            disabled={isSaving} onClick={handleSaveOrder}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
             style={{ backgroundColor: mainColor }}
             onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#0284c7'}
@@ -265,7 +220,7 @@ export const OrdenVentaPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-6 items-start">
+      <fieldset disabled={isSaving} className="flex flex-col xl:flex-row gap-6 items-start min-w-0">
         
         {/* Left Column - Forms */}
         <div className="flex-1 w-full space-y-6">
@@ -414,13 +369,15 @@ export const OrdenVentaPage: React.FC = () => {
                 className={`w-full p-4 rounded-xl border relative group cursor-pointer transition-all ${
                   darkMode ? 'border-sky-500/30 bg-sky-500/5 hover:border-sky-500/50' : 'border-sky-500/30 bg-sky-50 hover:border-sky-500/50'
                 }`}
-                onClick={() => setIsModalOpen(true)}
+                onClick={openClients}
               >
                 <div className="flex justify-between items-start">
                   <div>
                     <p className={`text-sm font-bold mb-1 ${darkMode ? 'text-sky-400' : 'text-sky-600'}`}>{selectedCliente.nombre}</p>
-                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>RUC: {selectedCliente.ruc}</p>
-                    <p className={`text-[12px] ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Condición: {selectedCliente.condicion}</p>
+                    <p className="text-xs">Dirección: {selectedCliente.direccion || 'No registrada'}</p>
+                    <p className="text-xs">Correo: {selectedCliente.email || 'No registrado'} | Teléfono: {selectedCliente.telefono || 'No registrado'}</p>
+                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>Documento: {selectedCliente.documento}</p>
+                    <p className={`text-[12px] ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Límite de crédito: {Number.isFinite(selectedCliente.limite_credito) ? formatCurrency(selectedCliente.limite_credito) : 'No registrado'}</p>
                   </div>
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/50 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Search size={14} />
@@ -429,7 +386,7 @@ export const OrdenVentaPage: React.FC = () => {
               </div>
             ) : (
               <button 
-                onClick={() => setIsModalOpen(true)}
+                onClick={openClients}
                 className={`w-full py-3.5 px-4 rounded-xl border flex items-center gap-3 transition-all shadow-sm ${
                   darkMode ? 'border-slate-700 hover:border-slate-600 hover:bg-slate-800/50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                 }`}
@@ -480,7 +437,7 @@ export const OrdenVentaPage: React.FC = () => {
             </div>
 
             <button 
-              onClick={handleSaveOrder}
+              disabled={isSaving} onClick={handleSaveOrder}
               className="w-full py-3.5 rounded-xl text-white font-bold text-base transition-colors shadow-sm mb-4"
               style={{ backgroundColor: badgeColor }}
               onMouseOver={(e) => e.currentTarget.style.backgroundColor = mainColor}
@@ -494,7 +451,7 @@ export const OrdenVentaPage: React.FC = () => {
           </div>
 
         </div>
-      </div>
+      </fieldset>
 
       {/* Modal Buscar Cliente */}
       <AnimatePresence>
@@ -532,11 +489,15 @@ export const OrdenVentaPage: React.FC = () => {
               </div>
 
               <div className="p-6">
-                <div className="relative mb-6">
+                <p className="text-xs text-amber-600 mb-3">Registros locales sin verificar. Versiones anteriores pudieron incluir ejemplos; revisa los datos antes de usarlos.</p>
+                <Link to="/clientes" target="_blank" rel="noopener noreferrer" className="text-sm text-sky-500 underline">Crear o editar clientes (otra pestaña)</Link>
+                <button onClick={() => void refreshClients()} className="ml-4 text-sm text-sky-500 underline">Actualizar lista</button>
+                {clientError && <p role="alert" className="text-red-500">{clientError}</p>}
+                <div className="relative mb-6 mt-3">
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={18} />
                   <input 
                     type="text" 
-                    placeholder="Cliente / RUC" 
+                    placeholder="Cliente ? RUC ? DNI" 
                     value={clienteSearch}
                     onChange={(e) => setClienteSearch(e.target.value)}
                     className={`w-full pl-11 pr-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 transition-all ${
@@ -550,19 +511,17 @@ export const OrdenVentaPage: React.FC = () => {
                     <thead className={`${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'}`}>
                       <tr>
                         <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CLIENTE</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>RUC</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
+                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DOCUMENTO</th>
+                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CRÉDITO</th>
                         <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>TIPO</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
-                      {clientesDB.filter(c => 
-                        c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
-                        c.ruc.includes(clienteSearch)
-                      ).map(cli => (
+                      {filteredClients.map(cli => (
                         <tr 
-                          key={cli.ruc}
+                          key={cli.id}
                           onClick={() => {
+                            try { salesClientSnapshot(cli); } catch (error) { showToast(error instanceof Error ? error.message : 'Completa los datos del cliente.'); return; }
                             setSelectedCliente(cli);
                             setIsModalOpen(false);
                             setClienteSearch('');
@@ -572,21 +531,18 @@ export const OrdenVentaPage: React.FC = () => {
                           }`}
                         >
                           <td className={`px-5 py-3.5 font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{cli.nombre}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{cli.ruc}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{cli.condicion}</td>
+                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{cli.documento}</td>
+                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{Number.isFinite(cli.limite_credito) ? formatCurrency(cli.limite_credito) : 'No registrado'}</td>
                           <td className="px-5 py-3.5">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${
                               darkMode ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-100 text-sky-600'
                             }`}>
-                              {cli.tipo}
+                              {cli.tipo_persona}
                             </span>
                           </td>
                         </tr>
                       ))}
-                      {clientesDB.filter(c => 
-                        c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
-                        c.ruc.includes(clienteSearch)
-                      ).length === 0 && (
+                      {filteredClients.length === 0 && (
                         <tr>
                           <td colSpan={4} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                             No se encontraron clientes.

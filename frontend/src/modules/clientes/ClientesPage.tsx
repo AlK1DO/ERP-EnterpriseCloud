@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Search, Edit2, Trash2, X, Save, Building, CreditCard, Phone, Mail, MapPin, User, History, Calendar, Activity } from 'lucide-react';
 import { clientesService } from '../../services/clientesService';
 import type { ClienteFormData, Cliente } from '../../services/clientesService';
@@ -29,9 +29,11 @@ export const ClientesPage: React.FC = () => {
 
   const [formData, setFormData] = useState<ClienteFormData>(initialFormState);
 
+  const submitPending = useRef(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Cargar datos al iniciar
   useEffect(() => {
-    clientesService.getClientes().then(data => setClientes(data));
+    clientesService.getClientes().then(data => setClientes(data)).catch(() => setLoadError('No se pudieron cargar los registros; los datos existentes se conservan.'));
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,6 +54,7 @@ export const ClientesPage: React.FC = () => {
   };
 
   const closeModal = () => {
+    if (submitPending.current) return;
     setIsModalOpen(false);
     setEditingId(null);
     setFormData(initialFormState);
@@ -83,6 +86,8 @@ export const ClientesPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitPending.current) return;
+    submitPending.current = true;
     setIsSubmitting(true);
     try {
       if (editingId) {
@@ -92,11 +97,13 @@ export const ClientesPage: React.FC = () => {
         const nuevoCliente = await clientesService.createCliente(formData);
         setClientes(prev => [...prev, nuevoCliente]);
       }
+      submitPending.current = false;
       closeModal();
     } catch (error) {
       console.error("Error al guardar en BD:", error);
-      alert("Hubo un error al guardar el cliente.");
+      alert(error instanceof Error ? error.message : 'No se pudo guardar el cliente.');
     } finally {
+      submitPending.current = false;
       setIsSubmitting(false);
     }
   };
@@ -132,12 +139,14 @@ export const ClientesPage: React.FC = () => {
   };
 
   const clientesFiltrados = clientes.filter(c => 
-    c.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.documento.includes(searchTerm)
+    String(c.nombre ?? '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    String(c.documento ?? '').includes(searchTerm)
   );
 
   return (
     <div className="space-y-6 relative">
+      <p className="text-sm text-amber-700">Registros locales sin verificación de identidad. Versiones anteriores pudieron incluir ejemplos; se conservan para revisión.</p>
+      {loadError && <p role="alert" className="text-red-600">{loadError}</p>}
       <div className="flex justify-between items-center bg-white p-5 rounded-xl shadow-sm border border-gray-100">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Gestión de Clientes</h1>

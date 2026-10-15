@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowRightLeft, Plus, Download, Printer, Search, 
   ArrowUpRight, ArrowDownLeft, Package, X, CheckCircle, Minus
 } from 'lucide-react';
 import { inventarioService, type MovimientoKardex, type Producto } from '../../services/inventarioService';
+import { filterReceiptMovements, readReceptionData } from '../../services/receptionService';
+import { recoverInventoryTransaction, withInventoryLock } from '../../services/inventoryTransaction';
 
 export const MovimientoKardexPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const receiptFilter = searchParams.get('recepcion');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [movimientos, setMovimientos] = useState<MovimientoKardex[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -30,10 +35,10 @@ export const MovimientoKardexPage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const loadData = async () => {
-    const movs = await inventarioService.getMovimientos();
-    const prods = await inventarioService.getProductos();
-    setMovimientos(movs);
-    setProductos(prods);
+    try {
+      const data = await withInventoryLock(() => { recoverInventoryTransaction(localStorage); return readReceptionData(localStorage); });
+      setMovimientos(data.movements); setProductos(data.products); setLoadError(null);
+    } catch { setLoadError('No se pudieron cargar o recuperar los movimientos. Abre Ingreso al Kardex para revisar la recuperación.'); }
   };
 
   useEffect(() => {
@@ -47,7 +52,7 @@ export const MovimientoKardexPage: React.FC = () => {
 
   // Filtrado
   const filteredMovs = useMemo(() => {
-    return movimientos.filter(m => {
+    return filterReceiptMovements(movimientos, receiptFilter).filter(m => {
       const matchProd = filterProductoId === 'TODOS' || m.productoId === filterProductoId || m.productoCodigo === filterProductoId;
       const matchTipo = filterTipo === 'TODOS' || m.tipoMovimiento === filterTipo;
       const matchTxt = 
@@ -58,7 +63,7 @@ export const MovimientoKardexPage: React.FC = () => {
 
       return matchProd && matchTipo && matchTxt;
     });
-  }, [movimientos, filterProductoId, filterTipo, filterTexto]);
+  }, [movimientos, receiptFilter, filterProductoId, filterTipo, filterTexto]);
 
   // Totales de entradas y salidas filtradas
   const totalEntradaCant = filteredMovs.reduce((acc, m) => acc + (m.cantEntrada || 0), 0);
@@ -216,6 +221,11 @@ export const MovimientoKardexPage: React.FC = () => {
         </div>
       </div>
 
+      {loadError && <p role="alert" className="mb-4 p-4 rounded-xl border border-red-300 text-red-500">{loadError}</p>}
+      {receiptFilter && <div className={`mb-4 p-4 rounded-xl border ${darkMode ? 'bg-emerald-950 border-emerald-800 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+        <p className="text-sm break-all">Mostrando recepción: {receiptFilter}</p>
+        <button type="button" onClick={() => { const next = new URLSearchParams(searchParams); next.delete('recepcion'); setSearchParams(next); setFilterProductoId('TODOS'); setFilterTipo('TODOS'); setFilterTexto(''); }} className="mt-2 text-sm underline">Quitar filtro y consultar todos los movimientos</button>
+      </div>}
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 print:hidden">
         <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
 
+import { stockState, stockSummary, type StockState } from '../../services/stockAlerts';
+import { useInventoryRefresh } from '../../services/useInventoryRefresh';
+
 export const StockProductosPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const navigate = useNavigate();
@@ -14,7 +17,7 @@ export const StockProductosPage: React.FC = () => {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState('TODAS');
-  const [estadoFilter, setEstadoFilter] = useState<'TODOS' | 'NORMAL' | 'BAJO' | 'AGOTADO'>('TODOS');
+  const [estadoFilter, setEstadoFilter] = useState<'TODOS' | StockState>('TODOS');
   
   // Modal de Nuevo / Editar Producto
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,14 +38,15 @@ export const StockProductosPage: React.FC = () => {
 
   const [form, setForm] = useState(initialForm);
 
-  const loadProductos = async () => {
-    const data = await inventarioService.getProductos();
-    setProductos(data);
-  };
-
-  useEffect(() => {
-    loadProductos();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const pending = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const loadProductos = useCallback(async () => {
+    try { setProductos(await inventarioService.getProductos()); setLoadError(null); }
+    catch (error) { setLoadError(error instanceof Error ? error.message : 'No se pudo leer inventario.'); }
   }, []);
+  useEffect(() => { void Promise.resolve().then(loadProductos); }, [loadProductos]);
+  useInventoryRefresh(loadProductos);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -53,7 +57,7 @@ export const StockProductosPage: React.FC = () => {
   const totalItems = productos.length;
   const totalUnidades = productos.reduce((acc, p) => acc + (Number(p.stock) || 0), 0);
   const valorizacionTotal = productos.reduce((acc, p) => acc + ((Number(p.stock) || 0) * (Number(p.costoUnitario) || 0)), 0);
-  const stockCriticoCount = productos.filter(p => (Number(p.stock) || 0) <= (Number(p.stockMinimo) || 0)).length;
+  const stockCriticoCount = stockSummary(productos).critical;
 
   const categorias = useMemo(() => {
     const set = new Set<string>();
@@ -69,10 +73,7 @@ export const StockProductosPage: React.FC = () => {
       
       const matchCat = categoriaFilter === 'TODAS' || p.categoria === categoriaFilter;
 
-      let matchEstado = true;
-      if (estadoFilter === 'NORMAL') matchEstado = p.stock > p.stockMinimo;
-      if (estadoFilter === 'BAJO') matchEstado = p.stock <= p.stockMinimo && p.stock > 0;
-      if (estadoFilter === 'AGOTADO') matchEstado = p.stock === 0;
+      const matchEstado = estadoFilter === 'TODOS' || stockState(p) === estadoFilter;
 
       return matchSearch && matchCat && matchEstado;
     });
@@ -102,19 +103,23 @@ export const StockProductosPage: React.FC = () => {
 
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`¿Estás seguro de eliminar el producto "${name}" del catálogo?`)) {
+      try {
       await inventarioService.deleteProducto(id);
       await loadProductos();
       showToast(`Producto ${name} eliminado.`);
+      } catch (error) { alert(error instanceof Error ? error.message : 'No se pudo eliminar.'); }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pending.current) return;
     if (!form.codigo.trim() || !form.descripcion.trim()) {
       alert('Código y descripción son obligatorios.');
       return;
     }
 
+    pending.current = true; setSaving(true);
     try {
       if (editingProduct) {
         await inventarioService.updateProducto(editingProduct.id, {
@@ -123,9 +128,8 @@ export const StockProductosPage: React.FC = () => {
           categoria: form.categoria,
           unidad: form.unidad,
           almacen: form.almacen,
-          costoUnitario: Number(form.costoUnitario) || 0,
-          precioVenta: Number(form.precioVenta) || 0,
-          stockMinimo: Number(form.stockMinimo) || 0
+          precioVenta: form.precioVenta.trim() ? Number(form.precioVenta) : NaN,
+          stockMinimo: form.stockMinimo.trim() ? Number(form.stockMinimo) : NaN
         });
         showToast('Producto actualizado con éxito.');
       } else {
@@ -135,18 +139,18 @@ export const StockProductosPage: React.FC = () => {
           categoria: form.categoria,
           unidad: form.unidad,
           almacen: form.almacen,
-          costoUnitario: Number(form.costoUnitario) || 0,
-          precioVenta: Number(form.precioVenta) || 0,
-          stockMinimo: Number(form.stockMinimo) || 0,
-          stockInicial: Number(form.stockInicial) || 0
+          precioVenta: form.precioVenta.trim() ? Number(form.precioVenta) : NaN,
+          stockMinimo: form.stockMinimo.trim() ? Number(form.stockMinimo) : NaN,
+          costoUnitario: 0,
+          stockInicial: 0
         });
-        showToast('Nuevo producto registrado e ingresado al kardex.');
+        showToast('Producto registrado con stock cero. Registra su entrada en Ingreso al Kardex.');
       }
       setIsModalOpen(false);
       await loadProductos();
     } catch (err: any) {
       alert(`Error al guardar: ${err.message}`);
-    }
+    } finally { pending.current = false; setSaving(false); }
   };
 
   const exportCSV = () => {
@@ -184,6 +188,8 @@ export const StockProductosPage: React.FC = () => {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-[1400px] mx-auto pb-10 font-sans">
       
+      {loadError && <p role="alert" className="text-red-600">{loadError}</p>}
+      {stockSummary(productos).inconsistent > 0 && <p role="alert" className="text-red-600">Inconsistencias de stock o minimo: {stockSummary(productos).inconsistent}. Requieren revision; no se corrigieron saldos.</p>}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6 mt-2">
         <div>
@@ -313,7 +319,7 @@ export const StockProductosPage: React.FC = () => {
             <option value="TODOS">Todos los Estados</option>
             <option value="NORMAL">Stock Normal</option>
             <option value="BAJO">Stock Crítico</option>
-            <option value="AGOTADO">Agotado</option>
+            <option value="AGOTADO">Sin existencias</option><option value="INCONSISTENTE">Inconsistente</option>
           </select>
 
           <button 
@@ -360,8 +366,10 @@ export const StockProductosPage: React.FC = () => {
                   </tr>
                 ) : (
                   filteredProductos.map((prod) => {
-                    const isBajo = prod.stock <= prod.stockMinimo && prod.stock > 0;
-                    const isAgotado = prod.stock === 0;
+                    const state = stockState(prod);
+                    const isBajo = state === 'BAJO';
+                    const isAgotado = state === 'AGOTADO';
+                    const isInconsistent = state === 'INCONSISTENTE';
 
                     return (
                       <motion.tr 
@@ -385,7 +393,7 @@ export const StockProductosPage: React.FC = () => {
                         <td className={`px-5 py-3.5 text-right text-xs ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{formatCurrency(prod.costoUnitario)}</td>
                         <td className={`px-5 py-3.5 text-right text-xs font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{formatCurrency(prod.precioVenta)}</td>
                         <td className="px-5 py-3.5 text-right font-black text-sm">
-                          <span className={isAgotado ? 'text-rose-500' : isBajo ? 'text-amber-500' : darkMode ? 'text-emerald-400' : 'text-emerald-600'}>
+                          <span className={isInconsistent || isAgotado ? 'text-rose-500' : isBajo ? 'text-amber-500' : darkMode ? 'text-emerald-400' : 'text-emerald-600'}>
                             {prod.stock}
                           </span>
                         </td>
@@ -394,7 +402,7 @@ export const StockProductosPage: React.FC = () => {
                           {formatCurrency(prod.stock * prod.costoUnitario)}
                         </td>
                         <td className="px-5 py-3.5 text-center">
-                          {isAgotado ? (
+                          {isInconsistent ? <span className="text-red-600 font-bold">Inconsistente</span> : isAgotado ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400">
                               Agotado
                             </span>
@@ -440,7 +448,7 @@ export const StockProductosPage: React.FC = () => {
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { if (!pending.current) setIsModalOpen(false); }} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -451,10 +459,12 @@ export const StockProductosPage: React.FC = () => {
                 <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
                   {editingProduct ? 'Editar Producto' : 'Registrar Nuevo Producto'}
                 </h3>
-                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+                <button onClick={() => { if (!pending.current) setIsModalOpen(false); }} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
               </div>
 
               <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <p className="text-xs text-slate-500">Stock y costo promedio se actualizan solo con movimientos. Registra entradas en Ingreso al Kardex y salidas en Movimiento de Kardex.</p>
+                <fieldset disabled={saving} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Código / SKU *</label>
@@ -516,13 +526,13 @@ export const StockProductosPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Costo Unitario (S/)</label>
+                    <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Costo promedio (solo movimientos)</label>
                     <input 
                       type="number" 
                       step="0.01"
                       placeholder="0.00" 
-                      value={form.costoUnitario}
-                      onChange={(e) => setForm({ ...form, costoUnitario: e.target.value })}
+                      readOnly
+                      value={editingProduct ? form.costoUnitario : 0}
                       className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
                     />
                   </div>
@@ -532,6 +542,7 @@ export const StockProductosPage: React.FC = () => {
                       type="number" 
                       step="0.01"
                       placeholder="0.00" 
+                      min="0" required
                       value={form.precioVenta}
                       onChange={(e) => setForm({ ...form, precioVenta: e.target.value })}
                       className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
@@ -545,19 +556,20 @@ export const StockProductosPage: React.FC = () => {
                     <input 
                       type="number" 
                       placeholder="5" 
+                      min="0" step="any" required
                       value={form.stockMinimo}
                       onChange={(e) => setForm({ ...form, stockMinimo: e.target.value })}
                       className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
                     />
                   </div>
-                  {!editingProduct && (
+                  {(
                     <div>
-                      <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Stock Inicial</label>
+                      <label className={`block text-xs font-bold uppercase mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{editingProduct ? 'Stock actual (solo lectura)' : 'Stock inicial: cero'}</label>
                       <input 
                         type="number" 
                         placeholder="0" 
-                        value={form.stockInicial}
-                        onChange={(e) => setForm({ ...form, stockInicial: e.target.value })}
+                        readOnly
+                        value={editingProduct ? form.stockInicial : "0"}
                         className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`}
                       />
                     </div>
@@ -567,7 +579,7 @@ export const StockProductosPage: React.FC = () => {
                 <div className={`pt-4 border-t flex justify-end gap-3 ${darkMode ? 'border-slate-800' : 'border-gray-100'}`}>
                   <button 
                     type="button" 
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={() => { if (!pending.current) setIsModalOpen(false); }}
                     className={`px-4 py-2 rounded-lg text-sm font-semibold border ${darkMode ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'}`}
                   >
                     Cancelar
@@ -580,6 +592,7 @@ export const StockProductosPage: React.FC = () => {
                     Guardar
                   </button>
                 </div>
+                </fieldset>
               </form>
             </motion.div>
           </div>
