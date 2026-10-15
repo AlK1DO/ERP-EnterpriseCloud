@@ -8,108 +8,18 @@ import {
 export const FacturacionPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   
-  // Órdenes pendientes simuladas (Lo que vendría de la base de datos)
-  const [pendingOrders, setPendingOrders] = useState(() => {
-    const dummyData = [
-      {
-        id: 'OV-2026-1138',
-        cliente: 'Julio Yanavelca Yanavilca',
-        ruc: '10748596123',
-        fecha: '08 Oct 2026',
-        total: 2408.00,
-        vendedor: 'Leonel Davis',
-        items: [
-          { desc: 'Laptop HP ProBook 450', cant: 1, pUnitario: 2000.00, total: 2000.00 },
-          { desc: 'Teclado Mecánico Logitech', cant: 1, pUnitario: 40.67, total: 40.67 }
-        ]
-      },
-      {
-        id: 'OV-2026-1139',
-        cliente: 'MegaTech Perú E.I.R.L.',
-        ruc: '20111111111',
-        fecha: '08 Oct 2026',
-        total: 8250.00,
-        vendedor: 'María López',
-        items: [
-          { desc: 'Monitor Dell UltraSharp 27 4K', cant: 4, pUnitario: 1747.88, total: 6991.52 }
-        ]
-      },
-      {
-        id: 'OV-2026-1140',
-        cliente: 'Soluciones Informáticas Globales S.A.',
-        ruc: '20222222222',
-        fecha: '07 Oct 2026',
-        total: 450.00,
-        vendedor: 'Carlos Ruiz',
-        items: [
-          { desc: 'Teclado Mecánico Logitech MX', cant: 1, pUnitario: 381.35, total: 381.35 }
-        ]
-      },
-      {
-        id: 'OV-2026-1141',
-        cliente: 'Tech Solutions E.I.R.L.',
-        ruc: '20333333333',
-        fecha: '06 Oct 2026',
-        total: 1200.00,
-        vendedor: 'María López',
-        items: [
-          { desc: 'Disco Duro 1TB SSD', cant: 2, pUnitario: 450.00, total: 900.00 },
-          { desc: 'Memoria RAM 16GB', cant: 1, pUnitario: 116.95, total: 116.95 }
-        ]
-      },
-      {
-        id: 'OV-2026-1142',
-        cliente: 'Importaciones Digitales S.A.C.',
-        ruc: '20444444444',
-        fecha: '05 Oct 2026',
-        total: 5400.00,
-        vendedor: 'Leonel Davis',
-        items: [
-          { desc: 'Servidor HP ProLiant', cant: 1, pUnitario: 4576.27, total: 4576.27 }
-        ]
-      },
-      {
-        id: 'OV-2026-1143',
-        cliente: 'Redes y Comunicaciones Andinas',
-        ruc: '20555555555',
-        fecha: '05 Oct 2026',
-        total: 890.00,
-        vendedor: 'Carlos Ruiz',
-        items: [
-          { desc: 'Cámara de Seguridad Hikvision', cant: 4, pUnitario: 188.55, total: 754.20 }
-        ]
-      },
-      {
-        id: 'OV-2026-1144',
-        cliente: 'Sistemas Avanzados Lima S.R.L.',
-        ruc: '20666666666',
-        fecha: '04 Oct 2026',
-        total: 3100.00,
-        vendedor: 'María López',
-        items: [
-          { desc: 'Proyector Epson WXGA', cant: 2, pUnitario: 1313.56, total: 2627.12 }
-        ]
-      },
-      {
-        id: 'OV-2026-1145',
-        cliente: 'Consultores Tecnológicos Unidos',
-        ruc: '20777777777',
-        fecha: '04 Oct 2026',
-        total: 1650.00,
-        vendedor: 'Leonel Davis',
-        items: [
-          { desc: 'Tablet Samsung Galaxy Tab', cant: 3, pUnitario: 466.10, total: 1398.30 }
-        ]
-      }
-    ];
-
+  // Órdenes pendientes generadas desde Orden de Venta
+  const [pendingOrders, setPendingOrders] = useState<any[]>(() => {
     const cachedOrders = localStorage.getItem('erp_ordenes_venta');
     if (cachedOrders) {
-      const localOrders = JSON.parse(cachedOrders);
-      return [...localOrders, ...dummyData];
+      try {
+        const localOrders = JSON.parse(cachedOrders);
+        return Array.isArray(localOrders) ? localOrders : [];
+      } catch (e) {
+        return [];
+      }
     }
-    
-    return dummyData;
+    return [];
   });
 
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
