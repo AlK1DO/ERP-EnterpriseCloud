@@ -5,6 +5,11 @@ import { OrdenCompraPage } from './modules/compras/OrdenCompraPage';
 import { OrdenVentaPage } from './modules/ventas/OrdenVentaPage';
 import { FacturacionPage } from './modules/ventas/FacturacionPage';
 import { EstadoCuentaPage } from './modules/ventas/EstadoCuentaPage';
+import { ReportesPage } from './modules/reportes/ReportesPage';
+import { MantenimientosPage } from './modules/mantenimientos/MantenimientosPage';
+import { ClientesPage } from './modules/clientes/ClientesPage';
+import { ProveedoresPage } from './modules/proveedores/ProveedoresPage';
+import { CotizacionesPage } from './modules/cotizaciones/CotizacionesPage';
 
 function App() {
   return (
@@ -16,6 +21,11 @@ function App() {
           <Route path="orden-venta" element={<OrdenVentaPage />} />
           <Route path="facturacion" element={<FacturacionPage />} />
           <Route path="estado-cuenta" element={<EstadoCuentaPage />} />
+          <Route path="reportes" element={<ReportesPage />} />
+          <Route path="mantenimientos" element={<MantenimientosPage />} />
+          <Route path="clientes" element={<ClientesPage />} />
+          <Route path="proveedores" element={<ProveedoresPage />} />
+          <Route path="cotizaciones" element={<CotizacionesPage />} />
           
           {/* Catch-all para módulos en construcción */}
           <Route path="*" element={
