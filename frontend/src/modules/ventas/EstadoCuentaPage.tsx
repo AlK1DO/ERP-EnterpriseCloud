@@ -1,15 +1,20 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Download, Printer, Search, FileBarChart } from 'lucide-react';
+import { Download, Printer, Search, FileBarChart, Coins, CheckCircle2, X } from 'lucide-react';
+import { ventasService } from '../../services/ventasService';
+import { supabase } from '@/lib/supabase';
 
 export interface ItemEstadoCuenta {
+  id?: string;
+  dbId?: string;
   tipo: string;
   fecha: string;
+  rawFecha?: string;
   nro: string;
   razonSocial: string;
   productos: string;
-  vendedor: string;
+  metodoPago: string;
   estado: string;
   total: number;
   saldo: number;
@@ -20,30 +25,198 @@ export const EstadoCuentaPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   
   const [filterText, setFilterText] = useState('');
-  const [dateStart, setDateStart] = useState('2026-04-01');
-  const [dateEnd, setDateEnd] = useState('2026-06-30');
+  const [dateStart, setDateStart] = useState('2026-01-01');
+  const [dateEnd, setDateEnd] = useState('2026-12-31');
+  const [allData, setAllData] = useState<ItemEstadoCuenta[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [consultFeedback, setConsultFeedback] = useState<string | null>(null);
 
-  const [allData, setAllData] = useState<ItemEstadoCuenta[]>(() => {
-    const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
-    if (cachedCuenta) {
+  // Estados para el Modal de Cobro
+  const [cobroModalItem, setCobroModalItem] = useState<ItemEstadoCuenta | null>(null);
+  const [cobroAmount, setCobroAmount] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<string>('Efectivo');
+  const [nroOperacion, setNroOperacion] = useState<string>('');
+  const [isProcessingCobro, setIsProcessingCobro] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Cargar comprobantes reales desde Supabase y localStorage
+  useEffect(() => {
+    const loadRealVentas = async () => {
+      setLoading(true);
       try {
-        const localCuenta = JSON.parse(cachedCuenta);
-        return Array.isArray(localCuenta) ? localCuenta : [];
-      } catch (e) {
-        return [];
+        const ventas = await ventasService.getVentas();
+        const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
+        const cuentaDB: ItemEstadoCuenta[] = cachedCuenta ? JSON.parse(cachedCuenta) : [];
+
+        const mapped: ItemEstadoCuenta[] = ventas.map(v => {
+          const isFactura = v.cliente_nombre.toUpperCase().includes('S.A.') || 
+                            v.cliente_nombre.toUpperCase().includes('E.I.R.L.') || 
+                            v.cliente_nombre.toUpperCase().includes('S.R.L.');
+          const formattedDate = new Date(v.fecha).toLocaleDateString('es-PE', { 
+            day: '2-digit', month: '2-digit', year: 'numeric' 
+          }) + ' ' + new Date(v.fecha).toLocaleTimeString('es-PE', { 
+            hour: '2-digit', minute: '2-digit' 
+          });
+
+          const productosStr = v.items && v.items.length > 0 
+            ? v.items.map(i => `${i.cantidad}x ${i.descripcion}`).join(', ') 
+            : 'Productos varios';
+
+          return {
+            id: v.id,
+            dbId: v.id,
+            tipo: isFactura ? 'FACTURA ELECTRÓNICA' : 'BOLETA DE VENTA ELECTRÓNICA',
+            fecha: formattedDate,
+            rawFecha: v.fecha,
+            nro: v.numero,
+            razonSocial: v.cliente_nombre,
+            productos: productosStr,
+            metodoPago: v.metodo_pago || 'Efectivo',
+            estado: v.estado === 'Completada' ? 'CANCELADO' : 'PENDIENTE',
+            total: v.total,
+            saldo: v.estado === 'Completada' ? 0 : v.total,
+            pagado: v.estado === 'Completada' ? v.total : 0
+          };
+        });
+
+        // Combinar comprobantes de Supabase y locales evitando duplicaciones
+        const map = new Map<string, ItemEstadoCuenta>();
+        cuentaDB.forEach(item => {
+          map.set(item.nro, item);
+        });
+
+        mapped.forEach(item => {
+          if (map.has(item.nro)) return;
+
+          // Si es una orden y ya existe una factura para este cliente y total, no duplicar
+          const hasIssuedInvoice = Array.from(map.values()).some(existing => 
+            existing.razonSocial.trim().toLowerCase() === item.razonSocial.trim().toLowerCase() &&
+            Math.abs(existing.total - item.total) < 0.01
+          );
+
+          if (!hasIssuedInvoice) {
+            map.set(item.nro, item);
+          }
+        });
+
+        setAllData(Array.from(map.values()));
+      } catch (err) {
+        console.error('Error al cargar estado de cuenta:', err);
+      } finally {
+        setLoading(false);
       }
+    };
+
+    loadRealVentas();
+  }, []);
+
+  const handleOpenCobroModal = (item: ItemEstadoCuenta) => {
+    setCobroModalItem(item);
+    setCobroAmount(item.saldo);
+    setPaymentMethod(item.metodoPago || 'Efectivo');
+    setNroOperacion('');
+  };
+
+  const handleConfirmCobro = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cobroModalItem || cobroAmount <= 0) return;
+
+    setIsProcessingCobro(true);
+
+    try {
+      const nuevoSaldo = Math.max(0, Number((cobroModalItem.saldo - cobroAmount).toFixed(2)));
+      const nuevoPagado = Number((cobroModalItem.pagado + cobroAmount).toFixed(2));
+      const nuevoEstado = nuevoSaldo === 0 ? 'CANCELADO' : 'PENDIENTE';
+
+      // 1. Actualizar estado local
+      const updatedAllData = allData.map(d => {
+        if (d.nro === cobroModalItem.nro) {
+          return {
+            ...d,
+            metodoPago: paymentMethod,
+            saldo: nuevoSaldo,
+            pagado: nuevoPagado,
+            estado: nuevoEstado
+          };
+        }
+        return d;
+      });
+      setAllData(updatedAllData);
+
+      // 2. Actualizar localStorage
+      const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
+      const cuentaDB: ItemEstadoCuenta[] = cachedCuenta ? JSON.parse(cachedCuenta) : [];
+      let foundInCached = false;
+      const updatedCuentaDB = cuentaDB.map(d => {
+        if (d.nro === cobroModalItem.nro) {
+          foundInCached = true;
+          return {
+            ...d,
+            metodoPago: paymentMethod,
+            saldo: nuevoSaldo,
+            pagado: nuevoPagado,
+            estado: nuevoEstado
+          };
+        }
+        return d;
+      });
+      if (!foundInCached) {
+        updatedCuentaDB.push({
+          ...cobroModalItem,
+          metodoPago: paymentMethod,
+          saldo: nuevoSaldo,
+          pagado: nuevoPagado,
+          estado: nuevoEstado
+        });
+      }
+      localStorage.setItem('erp_estado_cuenta', JSON.stringify(updatedCuentaDB));
+
+      // 3. Sincronizar con Supabase si aplica
+      if (nuevoEstado === 'CANCELADO') {
+        try {
+          if (cobroModalItem.dbId) {
+            await supabase.from('ventas').update({ estado: 'Completada', metodo_pago: paymentMethod }).eq('id', cobroModalItem.dbId);
+          } else {
+            await supabase.from('ventas').update({ estado: 'Completada', metodo_pago: paymentMethod }).eq('numero', cobroModalItem.nro);
+          }
+        } catch (dbErr) {
+          console.warn('No se pudo actualizar en Supabase ventas:', dbErr);
+        }
+      }
+
+      setToastMessage(`¡Cobro de S/ ${cobroAmount.toFixed(2)} registrado con éxito! El documento ${cobroModalItem.nro} ahora está ${nuevoEstado}.`);
+      setTimeout(() => setToastMessage(null), 5000);
+      setCobroModalItem(null);
+    } catch (err) {
+      console.error('Error al registrar cobro:', err);
+    } finally {
+      setIsProcessingCobro(false);
     }
-    return [];
-  });
+  };
 
   // Filtramos la data en tiempo real
   const filteredData = useMemo(() => {
-    return allData.filter(d => 
-      d.razonSocial.toLowerCase().includes(filterText.toLowerCase()) ||
-      d.nro.toLowerCase().includes(filterText.toLowerCase()) ||
-      d.vendedor.toLowerCase().includes(filterText.toLowerCase())
-    );
-  }, [filterText]);
+    return allData.filter(d => {
+      const matchText = 
+        d.razonSocial.toLowerCase().includes(filterText.toLowerCase().trim()) ||
+        d.nro.toLowerCase().includes(filterText.toLowerCase().trim()) ||
+        d.metodoPago.toLowerCase().includes(filterText.toLowerCase().trim()) ||
+        d.productos.toLowerCase().includes(filterText.toLowerCase().trim());
+
+      if (!matchText) return false;
+
+      if (dateStart && d.rawFecha) {
+        const itemDate = d.rawFecha.slice(0, 10);
+        if (itemDate < dateStart) return false;
+      }
+      if (dateEnd && d.rawFecha) {
+        const itemDate = d.rawFecha.slice(0, 10);
+        if (itemDate > dateEnd) return false;
+      }
+
+      return true;
+    });
+  }, [allData, filterText, dateStart, dateEnd]);
 
   // Agrupamos por tipo de documento
   const groupedData = useMemo(() => {
@@ -58,7 +231,7 @@ export const EstadoCuentaPage: React.FC = () => {
   const formatCurrency = (val: number) => val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const exportToCSV = () => {
-    const headers = ['Tipo', 'Fecha Venta', 'Nro Documento', 'Razón Social', 'Detalle de Productos', 'Vendedor', 'Estado', 'Total S/.', 'Saldo S/.', 'Pagado S/.'];
+    const headers = ['Tipo', 'Fecha Venta', 'Nro Documento', 'Razón Social', 'Detalle de Productos', 'Forma de Pago', 'Estado', 'Total S/.', 'Saldo S/.', 'Pagado S/.'];
     let csvContent = headers.join(';') + '\n';
     
     filteredData.forEach(item => {
@@ -68,7 +241,7 @@ export const EstadoCuentaPage: React.FC = () => {
         item.nro,
         `"${item.razonSocial}"`,
         `"${item.productos}"`,
-        item.vendedor,
+        item.metodoPago,
         item.estado,
         item.total,
         item.saldo,
@@ -77,7 +250,7 @@ export const EstadoCuentaPage: React.FC = () => {
       csvContent += row.join(';') + '\n';
     });
 
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' }); // Add BOM for Excel UTF-8 support
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -176,27 +349,54 @@ export const EstadoCuentaPage: React.FC = () => {
             <table className="w-full text-left text-[11px] border-separate border-spacing-y-2 print:border-spacing-y-0 print:border-collapse print:text-xs">
               <thead>
                 <tr className={`text-[9px] uppercase tracking-wider font-bold ${darkMode ? 'text-slate-400' : 'text-slate-500'} print:text-black print:border-b print:border-black`}>
-                  <th className="px-3 py-2 first:rounded-l-lg last:rounded-r-lg">Fecha Venta</th>
+                  <th className="px-3 py-2 first:rounded-l-lg">Fecha Venta</th>
                   <th className="px-3 py-2">Nro Documento</th>
                   <th className="px-3 py-2">Razón Social</th>
                   <th className="px-3 py-2">Detalle de Productos</th>
-                  <th className="px-3 py-2">Vendedor</th>
+                  <th className="px-3 py-2">Forma de Pago</th>
                   <th className="px-3 py-2 text-center">Estado</th>
                   <th className="px-3 py-2 text-right">Total S/.</th>
                   <th className="px-3 py-2 text-right">Saldo S/.</th>
-                  <th className="px-3 py-2 text-right first:rounded-l-lg last:rounded-r-lg">Pagado S/.</th>
+                  <th className="px-3 py-2 text-right">Pagado S/.</th>
+                  <th className="px-3 py-2 text-center last:rounded-r-lg print:hidden">Acción</th>
                 </tr>
               </thead>
               
-              {Object.keys(groupedData).length === 0 ? (
+              {loading ? (
                 <tbody>
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center">
-                      <div className="flex flex-col items-center justify-center opacity-50">
-                        <FileBarChart size={32} className="mb-3 text-gray-400" />
+                    <td colSpan={10} className="px-6 py-12 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="w-8 h-8 border-4 border-[#0ea5e9] border-t-transparent rounded-full animate-spin mb-3"></div>
                         <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
-                          No se encontraron documentos
+                          Cargando documentos de ventas desde Supabase...
                         </p>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              ) : Object.keys(groupedData).length === 0 ? (
+                <tbody>
+                  <tr>
+                    <td colSpan={10} className="px-6 py-10 text-center">
+                      <div className="flex flex-col items-center justify-center max-w-md mx-auto">
+                        <FileBarChart size={38} className="mb-3 text-slate-400 opacity-60" />
+                        <h4 className={`text-sm font-bold mb-1 ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                          {filterText ? `No se encontraron documentos para "${filterText}"` : 'No se encontraron documentos'}
+                        </h4>
+                        <p className={`text-xs leading-relaxed mb-4 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                          {filterText 
+                            ? 'Verifica que el nombre o documento corresponda a un Cliente con ventas facturadas en el rango de fechas seleccionado.'
+                            : 'Genera una orden en "Ventas > Orden de venta" y emite el comprobante en "Facturación" para visualizar el estado de cuenta aquí.'}
+                        </p>
+                        <div className={`p-3 rounded-xl border text-[11px] text-left leading-relaxed ${
+                          darkMode ? 'bg-slate-800/60 border-slate-700 text-slate-300' : 'bg-blue-50/70 border-blue-200 text-blue-900'
+                        }`}>
+                          <p className="font-semibold mb-1">💡 ¿Buscabas un Proveedor?</p>
+                          <p>
+                            Los proveedores registrados (como Jordan Rojas) pertenecen al flujo de <strong>Compras</strong>. Para consultar sus datos u órdenes dirígete a <strong>Compras &gt; Orden de Compra</strong>. Si deseas registrar ventas a nombre de Jordan, debes darlo de alta en <strong>Ventas &gt; Clientes</strong>.
+                          </p>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -210,7 +410,7 @@ export const EstadoCuentaPage: React.FC = () => {
                   return (
                     <tbody key={tipo} className="print:divide-y print:divide-gray-400">
                       <tr>
-                        <td colSpan={9} className="p-0 pt-3 print:pt-0">
+                        <td colSpan={10} className="p-0 pt-3 print:pt-0">
                           <div className={`mb-1 px-3 py-2 rounded-xl flex items-center gap-2 ${
                             darkMode ? 'bg-indigo-900/30 border border-indigo-500/20' : 'bg-indigo-50 border border-indigo-100/50'
                           } print:bg-transparent print:border-b-2 print:border-black print:rounded-none print:px-0`}>
@@ -257,10 +457,10 @@ export const EstadoCuentaPage: React.FC = () => {
                           }`}>
                             {item.productos}
                           </td>
-                          <td className={`px-3 py-2.5 font-bold print:text-black whitespace-nowrap ${
-                            darkMode ? 'text-white' : 'text-black'
+                          <td className={`px-3 py-2.5 font-semibold text-xs print:text-black whitespace-nowrap ${
+                            darkMode ? 'text-slate-300' : 'text-slate-700'
                           }`}>
-                            {item.vendedor}
+                            {item.metodoPago}
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-bold tracking-wider uppercase whitespace-nowrap ${
@@ -282,10 +482,27 @@ export const EstadoCuentaPage: React.FC = () => {
                           } print:text-black`}>
                             {formatCurrency(item.saldo)}
                           </td>
-                          <td className={`px-3 py-2.5 text-right rounded-r-xl print:rounded-none font-bold whitespace-nowrap ${
+                          <td className={`px-3 py-2.5 text-right font-bold whitespace-nowrap ${
                             item.pagado > 0 ? (darkMode ? 'text-emerald-400' : 'text-emerald-600') : (darkMode ? 'text-slate-500' : 'text-slate-400')
                           } print:text-black`}>
                             {formatCurrency(item.pagado)}
+                          </td>
+                          <td className="px-3 py-2.5 text-center rounded-r-xl print:rounded-none print:hidden whitespace-nowrap">
+                            {item.saldo > 0 || item.estado === 'PENDIENTE' ? (
+                              <button
+                                onClick={() => handleOpenCobroModal(item)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all hover:scale-105 active:scale-95"
+                                title="Registrar cobro de este documento"
+                              >
+                                <Coins size={13} />
+                                Cobrar
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                                <CheckCircle2 size={13} />
+                                Cobrado
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -297,6 +514,7 @@ export const EstadoCuentaPage: React.FC = () => {
                         <td className={`px-3 py-3 text-right font-bold text-xs ${darkMode ? 'text-white' : 'text-slate-800'} print:text-black`}>{formatCurrency(totalMonto)}</td>
                         <td className={`px-3 py-3 text-right font-bold text-xs ${darkMode ? 'text-orange-400' : 'text-orange-600'} print:text-black`}>{formatCurrency(totalSaldo)}</td>
                         <td className={`px-3 py-3 text-right font-bold text-xs ${darkMode ? 'text-emerald-400' : 'text-emerald-600'} print:text-black`}>{formatCurrency(totalPagado)}</td>
+                        <td className="print:hidden"></td>
                       </tr>
                     </tbody>
                   );
@@ -325,7 +543,7 @@ export const EstadoCuentaPage: React.FC = () => {
                   <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={16} />
                   <input 
                     type="text" 
-                    placeholder="Cliente, documento o vendedor"
+                    placeholder="Cliente, documento o forma de pago"
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
                     onKeyDown={(e) => {
@@ -371,12 +589,26 @@ export const EstadoCuentaPage: React.FC = () => {
               
               <button 
                 onClick={() => {
-                  // Manual search trigger removed to favor real-time updates
+                  const count = filteredData.length;
+                  if (filterText.trim()) {
+                    setConsultFeedback(`Consulta: ${count} documento(s) para "${filterText}".`);
+                  } else {
+                    setConsultFeedback(`Consulta: ${count} documento(s) en el período actual.`);
+                  }
+                  setTimeout(() => setConsultFeedback(null), 4000);
                 }}
-                className="w-full mt-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white py-2.5 rounded-lg font-bold text-sm transition-colors shadow-sm"
+                className="w-full mt-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white py-2.5 rounded-lg font-bold text-sm transition-colors shadow-sm active:scale-[0.98]"
               >
                 Consultar
               </button>
+
+              {consultFeedback && (
+                <div className={`text-xs p-2.5 rounded-lg border text-center transition-all ${
+                  darkMode ? 'bg-slate-800 border-slate-700 text-sky-400' : 'bg-sky-50 border-sky-200 text-sky-800'
+                }`}>
+                  {consultFeedback}
+                </div>
+              )}
             </div>
           </div>
 
@@ -446,6 +678,158 @@ export const EstadoCuentaPage: React.FC = () => {
           
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 flex items-center gap-2 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-xl border border-emerald-500 animate-in fade-in slide-in-from-top-4 duration-300">
+          <CheckCircle2 size={18} />
+          <span className="text-xs font-bold">{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Modal de Cobro */}
+      {cobroModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 overflow-hidden ${
+            darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center justify-between pb-4 border-b dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                  <Coins size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">Registrar Cobro de Venta</h3>
+                  <p className="text-[11px] text-slate-400">Documento {cobroModalItem.nro}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setCobroModalItem(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmCobro} className="mt-4 space-y-4">
+              {/* Resumen del documento */}
+              <div className={`p-3.5 rounded-xl border space-y-2 text-xs ${
+                darkMode ? 'bg-slate-800/60 border-slate-700/60' : 'bg-slate-50 border-slate-200/80'
+              }`}>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">Cliente:</span>
+                  <span className="font-bold truncate max-w-[220px]">{cobroModalItem.razonSocial}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">Total Documento:</span>
+                  <span className="font-bold">S/ {formatCurrency(cobroModalItem.total)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">Monto ya Pagado:</span>
+                  <span className="font-bold text-emerald-500">S/ {formatCurrency(cobroModalItem.pagado)}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t dark:border-slate-700">
+                  <span className="font-bold text-orange-500">Saldo Pendiente:</span>
+                  <span className="font-extrabold text-orange-500 text-sm">S/ {formatCurrency(cobroModalItem.saldo)}</span>
+                </div>
+              </div>
+
+              {/* Monto a Cobrar */}
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Monto a Cobrar (S/):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCobroAmount(cobroModalItem.saldo)}
+                    className="text-[11px] font-bold text-sky-500 hover:underline"
+                  >
+                    Cobrar Saldo Total
+                  </button>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">S/</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={cobroModalItem.saldo}
+                    value={cobroAmount}
+                    onChange={(e) => setCobroAmount(Number(e.target.value))}
+                    required
+                    className={`w-full pl-9 pr-3 py-2.5 rounded-lg border text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                      darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Forma de Pago */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Forma de Pago:
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className={`w-full px-3 py-2.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                    darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
+                  }`}
+                >
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia Bancaria (BCP / BBVA / Interbank)</option>
+                  <option value="Yape / Plin">Yape / Plin</option>
+                  <option value="Tarjeta">Tarjeta Débito / Crédito</option>
+                </select>
+              </div>
+
+              {/* Nro de Operación Opcional */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Nro de Operación / Referencia (Opcional):
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: OPE-839201 o Yape 987654321"
+                  value={nroOperacion}
+                  onChange={(e) => setNroOperacion(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                    darkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCobroModalItem(null)}
+                  className={`flex-1 py-2.5 rounded-xl font-bold text-xs transition-colors border ${
+                    darkMode ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCobro || cobroAmount <= 0}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isProcessingCobro ? (
+                    <span>Procesando...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      Confirmar Cobro
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 };

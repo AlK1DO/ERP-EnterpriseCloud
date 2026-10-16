@@ -1,4 +1,6 @@
-// Manejo local con localStorage para la persistencia temporal
+// Servicio de Clientes conectado directamente a Supabase PostgreSQL
+import { supabase } from '@/lib/supabase';
+import { migoService } from './migoService';
 
 export interface ClienteFormData {
   tipo_persona: 'NATURAL' | 'JURIDICA';
@@ -25,102 +27,162 @@ export interface Cliente extends ClienteFormData {
   historial: EntradaHistorial[];
 }
 
-const LOCAL_STORAGE_KEY = 'erp_enterprise_clientes';
-
-// Datos iniciales de prueba (se guardarán en localStorage si está vacío)
-const mockInicial: Cliente[] = [
-  { 
-    id: '1', tipo_persona: 'JURIDICA', nombre: 'Acme Corp', documento: '20123456789', 
-    email: 'contacto@acme.com', telefono: '987654321', direccion: 'Av. Siempre Viva 123', 
-    limite_credito: 5000, estado: 'Activo', fecha_registro: new Date().toISOString(),
-    historial: [
-      { id: 'h1', fecha: new Date().toISOString(), accion: 'Creación', detalle: 'Cliente registrado en el sistema.' }
-    ]
-  },
-  { 
-    id: '3', tipo_persona: 'NATURAL', nombre: 'Jordan Rojas B', documento: '70646686', 
-    email: 'jordan@gmail.com', telefono: '986182856', direccion: 'Calle Falsa 456', 
-    limite_credito: 0, estado: 'Inactivo', dias_inactivo: 45, fecha_registro: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
-    historial: [
-      { id: 'h2', fecha: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(), accion: 'Creación', detalle: 'Cliente registrado.' },
-      { id: 'h3', fecha: new Date().toISOString(), accion: 'Suspensión', detalle: 'Cuenta marcada como inactiva por falta de operaciones.' }
-    ]
-  },
-];
-
 export const clientesService = {
-  // Obtener clientes desde localStorage
+  // Obtener clientes directamente desde Supabase
   getClientes: async (): Promise<Cliente[]> => {
-    const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!data) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mockInicial));
-      return mockInicial;
-    }
-    return JSON.parse(data);
-  },
-
-  // Crear un nuevo cliente y guardarlo en localStorage
-  createCliente: async (cliente: ClienteFormData): Promise<Cliente> => {
-    await new Promise(resolve => setTimeout(resolve, 800));
-    const clientesActuales = await clientesService.getClientes();
-    const nuevoCliente: Cliente = {
-      ...cliente,
-      id: Math.random().toString(36).substr(2, 9),
-      estado: 'Activo',
-      dias_inactivo: 0,
-      fecha_registro: new Date().toISOString(),
-      historial: [{ id: Math.random().toString(36).substr(2, 9), fecha: new Date().toISOString(), accion: 'Creación', detalle: 'Cliente registrado en el sistema.' }]
-    };
-    clientesActuales.push(nuevoCliente);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientesActuales));
-    return nuevoCliente;
-  },
-
-  // Actualizar un cliente existente
-  updateCliente: async (id: string, clienteData: ClienteFormData): Promise<Cliente> => {
-    await new Promise(resolve => setTimeout(resolve, 600));
-    const clientes = await clientesService.getClientes();
-    const index = clientes.findIndex(c => c.id === id);
-    if (index === -1) throw new Error("Cliente no encontrado");
-
-    const clienteActualizado: Cliente = {
-      ...clientes[index],
-      ...clienteData,
-      historial: [
-        ...clientes[index].historial,
-        {
-          id: Math.random().toString(36).substr(2, 9),
-          fecha: new Date().toISOString(),
-          accion: 'Actualización',
-          detalle: 'Datos generales del cliente actualizados.'
-        }
-      ]
-    };
-
-    clientes[index] = clienteActualizado;
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientes));
-    return clienteActualizado;
-  },
-
-  // Eliminar un cliente
-  deleteCliente: async (id: string): Promise<void> => {
-    await new Promise(resolve => setTimeout(resolve, 400));
-    let clientes = await clientesService.getClientes();
-    clientes = clientes.filter(c => c.id !== id);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clientes));
-  },
-
-  // Consultar RUC externamente usando OpenRUC
-  consultarRUC: async (ruc: string) => {
     try {
-      const response = await fetch(`https://openruc.com/api/ruc/${ruc}`);
-      if (!response.ok) {
-        throw new Error('No se encontró el RUC o hubo un error en la API.');
+      const { data, error } = await supabase
+        .from('clientes')
+        .select(`
+          id,
+          tipo_persona,
+          documento,
+          nombre,
+          email,
+          telefono,
+          direccion,
+          limite_credito,
+          estado,
+          dias_inactivo,
+          fecha_registro,
+          historial:clientes_historial(
+            id,
+            fecha,
+            accion,
+            detalle
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error al obtener clientes de Supabase:', error.message);
+        return [];
       }
-      return await response.json();
-    } catch (error) {
-      console.error("Error al consultar RUC:", error);
-      throw error;
+
+      return (data || []).map((c: any) => ({
+        id: c.id,
+        tipo_persona: c.tipo_persona || 'NATURAL',
+        documento: c.documento || '',
+        nombre: c.nombre || '',
+        email: c.email || '',
+        telefono: c.telefono || '',
+        direccion: c.direccion || '',
+        limite_credito: Number(c.limite_credito) || 0,
+        estado: c.estado || 'Activo',
+        dias_inactivo: Number(c.dias_inactivo) || 0,
+        fecha_registro: c.fecha_registro || new Date().toISOString(),
+        historial: Array.isArray(c.historial) ? c.historial : []
+      }));
+    } catch (err) {
+      console.error('Error inesperado en getClientes:', err);
+      return [];
     }
+  },
+
+  // Crear un nuevo cliente en Supabase
+  createCliente: async (cliente: ClienteFormData): Promise<Cliente> => {
+    const tipoDoc = cliente.documento.length === 8 ? 'DNI' : 'RUC';
+
+    const { data, error } = await supabase
+      .from('clientes')
+      .insert([{
+        tipo_persona: cliente.tipo_persona,
+        tipo_documento: tipoDoc,
+        documento: cliente.documento.trim(),
+        nombre: cliente.nombre.trim(),
+        email: cliente.email.trim(),
+        telefono: cliente.telefono.trim(),
+        direccion: cliente.direccion.trim(),
+        limite_credito: Number(cliente.limite_credito) || 0,
+        estado: 'Activo',
+        dias_inactivo: 0,
+        fecha_registro: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message || 'Error al crear cliente en Supabase');
+
+    // Registrar evento en la tabla de historial
+    await supabase.from('clientes_historial').insert([{
+      cliente_id: data.id,
+      accion: 'Creación',
+      detalle: `Cliente registrado en el sistema con ${tipoDoc} ${cliente.documento}.`
+    }]);
+
+    return {
+      id: data.id,
+      tipo_persona: data.tipo_persona,
+      documento: data.documento,
+      nombre: data.nombre,
+      email: data.email,
+      telefono: data.telefono,
+      direccion: data.direccion,
+      limite_credito: Number(data.limite_credito) || 0,
+      estado: data.estado || 'Activo',
+      dias_inactivo: 0,
+      fecha_registro: data.fecha_registro || new Date().toISOString(),
+      historial: [{
+        id: 'h-1',
+        fecha: new Date().toISOString(),
+        accion: 'Creación',
+        detalle: `Cliente registrado en el sistema con ${tipoDoc} ${cliente.documento}.`
+      }]
+    };
+  },
+
+  // Actualizar un cliente existente en Supabase
+  updateCliente: async (id: string, clienteData: ClienteFormData): Promise<Cliente> => {
+    const tipoDoc = clienteData.documento.length === 8 ? 'DNI' : 'RUC';
+
+    const { data, error } = await supabase
+      .from('clientes')
+      .update({
+        tipo_persona: clienteData.tipo_persona,
+        tipo_documento: tipoDoc,
+        documento: clienteData.documento.trim(),
+        nombre: clienteData.nombre.trim(),
+        email: clienteData.email.trim(),
+        telefono: clienteData.telefono.trim(),
+        direccion: clienteData.direccion.trim(),
+        limite_credito: Number(clienteData.limite_credito) || 0,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message || 'Error al actualizar cliente');
+
+    // Registrar evento de actualización en el historial
+    await supabase.from('clientes_historial').insert([{
+      cliente_id: id,
+      accion: 'Actualización',
+      detalle: 'Datos generales del cliente actualizados.'
+    }]);
+
+    const clienteActualizado = await clientesService.getClientes();
+    const encontrado = clienteActualizado.find(c => c.id === id);
+    if (!encontrado) throw new Error('Cliente actualizado no encontrado');
+    return encontrado;
+  },
+
+  // Eliminar un cliente de Supabase
+  deleteCliente: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('clientes')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw new Error(error.message || 'Error al eliminar cliente');
+  },
+
+  // Consultar RUC o DNI usando Migo API oficial de SUNAT / RENIEC
+  consultarRUC: async (ruc: string) => {
+    return await migoService.consultarRuc(ruc);
+  },
+
+  consultarDNI: async (dni: string) => {
+    return await migoService.consultarDni(dni);
   }
 };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Plus, Search, Edit2, Trash2, X, Save, FileText, XCircle, PlusCircle, Calculator } from 'lucide-react';
 import { cotizacionesService } from '../../services/cotizacionesService';
 import { clientesService } from '../../services/clientesService';
@@ -6,6 +7,7 @@ import type { Cotizacion, CotizacionFormData, CotizacionItem } from '../../servi
 import type { Cliente } from '../../services/clientesService';
 
 export const CotizacionesPage: React.FC = () => {
+  const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -175,10 +177,10 @@ export const CotizacionesPage: React.FC = () => {
 
   const getBadgeColor = (estado: string) => {
     switch(estado) {
-      case 'Aprobada': return 'bg-green-100 text-green-700 border-green-200';
-      case 'Rechazada': return 'bg-red-100 text-red-700 border-red-200';
-      case 'Enviada': return 'bg-blue-100 text-blue-700 border-blue-200';
-      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+      case 'Aprobada': return darkMode ? 'bg-green-950/60 text-green-400 border-green-800/50' : 'bg-green-100 text-green-700 border-green-200';
+      case 'Rechazada': return darkMode ? 'bg-red-950/60 text-red-400 border-red-800/50' : 'bg-red-100 text-red-700 border-red-200';
+      case 'Enviada': return darkMode ? 'bg-blue-950/60 text-blue-400 border-blue-800/50' : 'bg-blue-100 text-blue-700 border-blue-200';
+      default: return darkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
 
@@ -191,10 +193,12 @@ export const CotizacionesPage: React.FC = () => {
 
   return (
     <div className="space-y-6 relative">
-      <div className="flex justify-between items-center bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+      <div className={`flex justify-between items-center p-5 rounded-xl shadow-sm border transition-colors ${
+        darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'
+      }`}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Cotizaciones</h1>
-          <p className="text-sm text-gray-500 mt-1">Crea y gestiona presupuestos para tus clientes antes de convertirlos en ventas.</p>
+          <h1 className={`text-2xl font-bold tracking-tight ${darkMode ? 'text-white' : 'text-gray-900'}`}>Cotizaciones</h1>
+          <p className={`text-sm mt-1 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Crea y gestiona presupuestos para tus clientes antes de convertirlos en ventas.</p>
         </div>
         <button 
           onClick={() => { setEditingId(null); setFormData(initialFormState); setIsModalOpen(true); }}
@@ -205,39 +209,51 @@ export const CotizacionesPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4">
+      <div className={`p-4 rounded-xl shadow-sm border flex gap-4 transition-colors ${
+        darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'
+      }`}>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
             type="text" 
             placeholder="Buscar por número o cliente..." 
-            className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f] transition-all"
+            className={`w-full pl-10 pr-4 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] transition-all ${
+              darkMode 
+                ? 'bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:bg-slate-800 focus:border-[#ff5a1f]' 
+                : 'bg-gray-50 border border-gray-200 text-gray-900 focus:bg-white focus:border-[#ff5a1f]'
+            }`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className={`rounded-xl shadow-sm border overflow-hidden transition-colors ${
+        darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'
+      }`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50/80 border-b border-gray-200">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Número</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Cliente</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Resumen / Productos</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Fecha</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Total</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Estado</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Acciones</th>
+              <tr className={`border-b transition-colors ${
+                darkMode ? 'bg-slate-800/80 border-slate-800' : 'bg-gray-50/80 border-gray-200'
+              }`}>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Número</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Cliente</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Resumen / Productos</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Fecha</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider text-right ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Total</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider text-center ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Estado</th>
+                <th className={`px-6 py-4 text-xs font-bold uppercase tracking-wider text-right ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
               {cotizacionesFiltradas.map((cotizacion) => (
-                <tr key={cotizacion.id} className="hover:bg-orange-50/30 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{cotizacion.numero}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{cotizacion.cliente_nombre}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <tr key={cotizacion.id} className={`transition-colors ${
+                  darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-orange-50/30'
+                }`}>
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>{cotizacion.numero}</td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${darkMode ? 'text-slate-200' : 'text-gray-800'}`}>{cotizacion.cliente_nombre}</td>
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     <div className="truncate max-w-[200px]" title={cotizacion.items?.map(i => i.descripcion).join(', ')}>
                       {cotizacion.items?.length > 0 
                         ? (cotizacion.items.length === 1 
@@ -246,10 +262,10 @@ export const CotizacionesPage: React.FC = () => {
                         : 'Sin ítems'}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     {new Date(cotizacion.fecha).toLocaleDateString('es-PE')}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900 text-right">
+                  <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold text-right ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                     {getSimboloMoneda(cotizacion.moneda)} {cotizacion.total.toLocaleString('es-PE', {minimumFractionDigits: 2})}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -262,10 +278,14 @@ export const CotizacionesPage: React.FC = () => {
                     </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => handleEdit(cotizacion)} className="text-blue-500 hover:text-blue-700 mx-1 p-1.5 bg-blue-50 rounded-md transition-colors" title="Editar">
+                    <button onClick={() => handleEdit(cotizacion)} className={`mx-1 p-1.5 rounded-md transition-colors ${
+                      darkMode ? 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20' : 'text-blue-500 hover:text-blue-700 bg-blue-50'
+                    }`} title="Editar">
                       <Edit2 size={16} />
                     </button>
-                    <button onClick={() => handleDelete(cotizacion.id, cotizacion.numero)} className="text-red-500 hover:text-red-700 mx-1 p-1.5 bg-red-50 rounded-md transition-colors" title="Eliminar">
+                    <button onClick={() => handleDelete(cotizacion.id, cotizacion.numero)} className={`mx-1 p-1.5 rounded-md transition-colors ${
+                      darkMode ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20' : 'text-red-500 hover:text-red-700 bg-red-50'
+                    }`} title="Eliminar">
                       <Trash2 size={16} />
                     </button>
                   </td>
@@ -273,7 +293,7 @@ export const CotizacionesPage: React.FC = () => {
               ))}
               {cotizacionesFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={7} className={`px-6 py-8 text-center ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                     No se encontraron cotizaciones. Empieza creando una nueva.
                   </td>
                 </tr>
@@ -286,13 +306,19 @@ export const CotizacionesPage: React.FC = () => {
       {/* MODAL DE NUEVA COTIZACIÓN (Formulario Amplio) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm transition-opacity overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 sticky top-0 z-10">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <div className={`rounded-2xl shadow-xl w-full max-w-4xl my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-200 border ${
+            darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-gray-100'
+          }`}>
+            <div className={`px-6 py-4 border-b flex justify-between items-center sticky top-0 z-10 ${
+              darkMode ? 'bg-slate-800/90 backdrop-blur-md border-slate-800 text-white' : 'bg-gray-50/90 backdrop-blur-md border-gray-100 text-gray-800'
+            }`}>
+              <h2 className={`text-lg font-bold flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                 <FileText size={20} className="text-[#ff5a1f]" />
                 {editingId ? 'Editar Cotización' : 'Nueva Cotización'}
               </h2>
-              <button onClick={closeModal} className="text-gray-400 hover:text-red-500 transition-colors p-1" disabled={isSubmitting}>
+              <button onClick={closeModal} className={`transition-colors p-1 ${
+                darkMode ? 'text-slate-400 hover:text-red-400' : 'text-gray-400 hover:text-red-500'
+              }`} disabled={isSubmitting}>
                 <X size={20} />
               </button>
             </div>
@@ -302,50 +328,60 @@ export const CotizacionesPage: React.FC = () => {
               {/* Sección 1: Datos Generales */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Cliente *</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Cliente *</label>
                   <select required name="cliente_id" value={formData.cliente_id} onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f]"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#ff5a1f]'
+                    }`}
                   >
-                    <option value="">Seleccione un cliente...</option>
+                    <option value="" className={darkMode ? 'bg-slate-800 text-slate-400' : ''}>Seleccione un cliente...</option>
                     {clientes.map(c => (
-                      <option key={c.id} value={c.id}>{c.documento} - {c.nombre}</option>
+                      <option key={c.id} value={c.id} className={darkMode ? 'bg-slate-800 text-white' : ''}>{c.documento} - {c.nombre}</option>
                     ))}
                   </select>
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Moneda</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Moneda</label>
                   <select name="moneda" value={formData.moneda} onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f]"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#ff5a1f]'
+                    }`}
                   >
-                    <option value="PEN">Soles (PEN)</option>
-                    <option value="USD">Dólares (USD)</option>
+                    <option value="PEN" className={darkMode ? 'bg-slate-800 text-white' : ''}>Soles (PEN)</option>
+                    <option value="USD" className={darkMode ? 'bg-slate-800 text-white' : ''}>Dólares (USD)</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Fecha Emisión *</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Fecha Emisión *</label>
                   <input required type="date" name="fecha" value={formData.fecha} onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f]" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#ff5a1f]'
+                    }`} 
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Validez (Días)</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Validez (Días)</label>
                   <input required type="number" name="validez_dias" value={formData.validez_dias} onChange={handleInputChange} min="1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f]" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#ff5a1f]'
+                    }`} 
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Estado</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Estado</label>
                   <select name="estado" value={formData.estado} onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f]"
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' : 'bg-white border-gray-300 text-gray-900 focus:border-[#ff5a1f]'
+                    }`}
                   >
-                    <option value="Borrador">Borrador</option>
-                    <option value="Enviada">Enviada</option>
-                    <option value="Aprobada">Aprobada</option>
-                    <option value="Rechazada">Rechazada</option>
+                    <option value="Borrador" className={darkMode ? 'bg-slate-800 text-white' : ''}>Borrador</option>
+                    <option value="Enviada" className={darkMode ? 'bg-slate-800 text-white' : ''}>Enviada</option>
+                    <option value="Aprobada" className={darkMode ? 'bg-slate-800 text-white' : ''}>Aprobada</option>
+                    <option value="Rechazada" className={darkMode ? 'bg-slate-800 text-white' : ''}>Rechazada</option>
                   </select>
                 </div>
               </div>
@@ -353,17 +389,23 @@ export const CotizacionesPage: React.FC = () => {
               {/* Sección 2: Detalle de Ítems */}
               <div className="mb-8">
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-md font-bold text-gray-800 flex items-center gap-2">
+                  <h3 className={`text-md font-bold flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                     <Calculator size={18} className="text-gray-400" /> Detalle de Productos / Servicios
                   </h3>
-                  <button type="button" onClick={addItem} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors font-medium">
+                  <button type="button" onClick={addItem} className={`text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors font-medium ${
+                    darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}>
                     <PlusCircle size={16} /> Agregar Ítem
                   </button>
                 </div>
                 
-                <div className="border border-gray-200 rounded-xl overflow-hidden bg-gray-50">
+                <div className={`border rounded-xl overflow-hidden ${
+                  darkMode ? 'border-slate-800 bg-slate-800/40' : 'border-gray-200 bg-gray-50'
+                }`}>
                   <table className="w-full text-left">
-                    <thead className="bg-gray-100/80 border-b border-gray-200 text-xs text-gray-500 uppercase">
+                    <thead className={`border-b text-xs uppercase ${
+                      darkMode ? 'bg-slate-800/80 border-slate-800 text-slate-400' : 'bg-gray-100/80 border-gray-200 text-gray-500'
+                    }`}>
                       <tr>
                         <th className="px-4 py-3 font-semibold">Descripción</th>
                         <th className="px-4 py-3 font-semibold w-24">Cant.</th>
@@ -372,28 +414,40 @@ export const CotizacionesPage: React.FC = () => {
                         <th className="px-4 py-3 w-10"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
+                    <tbody className={`divide-y ${darkMode ? 'divide-slate-800 bg-slate-900' : 'divide-gray-200 bg-white'}`}>
                       {formData.items.map((item) => (
                         <tr key={item.id}>
                           <td className="px-4 py-2">
                             <input type="text" required placeholder="Nombre del producto o servicio"
                               value={item.descripcion} onChange={(e) => updateItem(item.id, 'descripcion', e.target.value)}
-                              className="w-full px-2 py-1.5 border border-transparent hover:border-gray-300 focus:border-[#ff5a1f] rounded focus:outline-none transition-colors text-sm"
+                              className={`w-full px-2 py-1.5 border rounded focus:outline-none transition-colors text-sm ${
+                                darkMode 
+                                  ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:border-[#ff5a1f]' 
+                                  : 'border-transparent hover:border-gray-300 focus:border-[#ff5a1f]'
+                              }`}
                             />
                           </td>
                           <td className="px-4 py-2">
                             <input type="number" required min="0.01" step="0.01"
                               value={item.cantidad || ''} onChange={(e) => updateItem(item.id, 'cantidad', parseFloat(e.target.value))}
-                              className="w-full px-2 py-1.5 border border-gray-200 focus:border-[#ff5a1f] rounded focus:outline-none text-sm"
+                              className={`w-full px-2 py-1.5 border rounded focus:outline-none text-sm ${
+                                darkMode 
+                                  ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' 
+                                  : 'border-gray-200 focus:border-[#ff5a1f]'
+                              }`}
                             />
                           </td>
                           <td className="px-4 py-2">
                             <input type="number" required min="0.01" step="0.01"
                               value={item.precio_unitario || ''} onChange={(e) => updateItem(item.id, 'precio_unitario', parseFloat(e.target.value))}
-                              className="w-full px-2 py-1.5 border border-gray-200 focus:border-[#ff5a1f] rounded focus:outline-none text-sm"
+                              className={`w-full px-2 py-1.5 border rounded focus:outline-none text-sm ${
+                                darkMode 
+                                  ? 'bg-slate-800 border-slate-700 text-white focus:border-[#ff5a1f]' 
+                                  : 'border-gray-200 focus:border-[#ff5a1f]'
+                              }`}
                             />
                           </td>
-                          <td className="px-4 py-2 text-right font-medium text-sm text-gray-800">
+                          <td className={`px-4 py-2 text-right font-medium text-sm ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                             {item.subtotal.toLocaleString('es-PE', {minimumFractionDigits: 2})}
                           </td>
                           <td className="px-4 py-2 text-center">
@@ -405,7 +459,7 @@ export const CotizacionesPage: React.FC = () => {
                       ))}
                       {formData.items.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
+                          <td colSpan={5} className={`px-4 py-8 text-center text-sm ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>
                             No hay ítems en la cotización. Presiona "Agregar Ítem".
                           </td>
                         </tr>
@@ -418,32 +472,42 @@ export const CotizacionesPage: React.FC = () => {
               {/* Sección 3: Totales y Notas */}
               <div className="flex flex-col md:flex-row justify-between gap-8 mb-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Notas / Condiciones Comerciales</label>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-slate-300' : 'text-gray-700'}`}>Notas / Condiciones Comerciales</label>
                   <textarea name="notas" value={formData.notas} onChange={handleInputChange} rows={3}
                     placeholder="Ej: El pago se realizará en 2 partes. Garantía de 1 año..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#ff5a1f] focus:ring-1 focus:ring-[#ff5a1f] text-sm resize-none" 
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] text-sm resize-none ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:border-[#ff5a1f]' : 'border-gray-300 focus:border-[#ff5a1f]'
+                    }`} 
                   ></textarea>
                 </div>
                 
-                <div className="w-full md:w-72 bg-orange-50/50 p-4 rounded-xl border border-orange-100 flex flex-col gap-2">
-                  <div className="flex justify-between text-sm text-gray-600">
+                <div className={`w-full md:w-72 p-4 rounded-xl border flex flex-col gap-2 ${
+                  darkMode ? 'bg-orange-950/20 border-orange-900/40' : 'bg-orange-50/50 border-orange-100'
+                }`}>
+                  <div className={`flex justify-between text-sm ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
                     <span>Subtotal:</span>
-                    <span className="font-medium">{getSimboloMoneda(formData.moneda)} {subtotalForm.toLocaleString('es-PE', {minimumFractionDigits: 2})}</span>
+                    <span className={`font-medium ${darkMode ? 'text-slate-200' : 'text-gray-800'}`}>{getSimboloMoneda(formData.moneda)} {subtotalForm.toLocaleString('es-PE', {minimumFractionDigits: 2})}</span>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600">
+                  <div className={`flex justify-between text-sm ${darkMode ? 'text-slate-400' : 'text-gray-600'}`}>
                     <span>IGV (18%):</span>
-                    <span className="font-medium">{getSimboloMoneda(formData.moneda)} {igvForm.toLocaleString('es-PE', {minimumFractionDigits: 2})}</span>
+                    <span className={`font-medium ${darkMode ? 'text-slate-200' : 'text-gray-800'}`}>{getSimboloMoneda(formData.moneda)} {igvForm.toLocaleString('es-PE', {minimumFractionDigits: 2})}</span>
                   </div>
-                  <div className="border-t border-orange-200/60 my-1 pt-2 flex justify-between text-lg font-bold text-gray-900">
+                  <div className={`border-t my-1 pt-2 flex justify-between text-lg font-bold ${
+                    darkMode ? 'border-orange-800/40 text-white' : 'border-orange-200/60 text-gray-900'
+                  }`}>
                     <span>Total:</span>
                     <span>{getSimboloMoneda(formData.moneda)} {totalForm.toLocaleString('es-PE', {minimumFractionDigits: 2})}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex justify-end gap-3 sticky bottom-0 bg-white">
+              <div className={`pt-4 border-t flex justify-end gap-3 sticky bottom-0 ${
+                darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'
+              }`}>
                 <button type="button" onClick={closeModal} disabled={isSubmitting}
-                  className="px-5 py-2.5 text-gray-600 font-medium hover:bg-gray-100 rounded-lg transition-colors">
+                  className={`px-5 py-2.5 font-medium rounded-lg transition-colors ${
+                    darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-gray-600 hover:bg-gray-100'
+                  }`}>
                   Cancelar
                 </button>
                 <button type="submit" disabled={isSubmitting}

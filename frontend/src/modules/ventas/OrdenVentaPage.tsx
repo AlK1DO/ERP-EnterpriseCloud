@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, Search, Package, Receipt, Users, Trash2, CheckCircle
+  Plus, Search, Package, Receipt, Users, Trash2, CheckCircle, ArrowRight
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
+import { clientesService } from '../../services/clientesService';
+import { ventasService } from '../../services/ventasService';
 
 interface ProductLine {
   id: string;
@@ -17,33 +19,60 @@ interface ProductLine {
 
 export const OrdenVentaPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<ProductLine[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [inputCant, setInputCant] = useState('');
   const [stockDisp, setStockDisp] = useState<number | ''>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [savedOrderAlert, setSavedOrderAlert] = useState<{
+    ovId: string;
+    total: number;
+    cliente: string;
+  } | null>(null);
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState<any>(null);
   const [clienteSearch, setClienteSearch] = useState('');
 
-  // Clientes locales
-  const clientesDB = [
-    { nombre: 'Corporación Tecnológica S.A.C.', ruc: '20111111111', condicion: 'Crédito 30 días', tipo: 'Corporativo' },
-    { nombre: 'Universidad Nacional Mayor', ruc: '20222222222', condicion: 'Contado', tipo: 'Educación' },
-    { nombre: 'Grupo Retail del Perú', ruc: '20333333333', condicion: 'Crédito 15 días', tipo: 'Retail' },
-    { nombre: 'Consultores TI Asociados', ruc: '20444444444', condicion: 'Contado', tipo: 'Servicios' },
-    { nombre: 'Julio Yanavelca Yanavilca', ruc: '10748596123', condicion: 'Contado', tipo: 'Persona Natural' },
-  ];
+  // Clientes desde Supabase con información completa
+  const [clientesDB, setClientesDB] = useState<any[]>([]);
   // Base de datos de productos desde inventarioService
   const [productDB, setProductDB] = useState<Producto[]>([]);
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
 
   useEffect(() => {
     inventarioService.getProductos().then(prods => {
       setProductDB(prods);
     });
+    clientesService.getClientes().then(cls => {
+      setClientesDB(cls.map(c => ({
+        id: c.id,
+        nombre: c.nombre,
+        tipo_persona: c.tipo_persona,
+        tipo_documento: c.documento?.length === 8 ? 'DNI' : 'RUC',
+        documento: c.documento,
+        ruc: c.documento,
+        telefono: c.telefono || 'Sin teléfono',
+        email: c.email || 'Sin correo',
+        direccion: c.direccion || 'Sin dirección',
+        condicion: c.limite_credito > 0 ? `Crédito (S/ ${c.limite_credito})` : 'Contado',
+        tipo: c.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural',
+        estado: c.estado || 'Activo'
+      })));
+    });
   }, []);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery) return productDB.slice(0, 8);
+    return productDB.filter(p => 
+      p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.codigo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.categoria && p.categoria.toLowerCase().includes(searchQuery.toLowerCase()))
+    ).slice(0, 8);
+  }, [productDB, searchQuery]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -64,7 +93,7 @@ export const OrdenVentaPage: React.FC = () => {
   const handleAddProduct = () => {
     if (!searchQuery || !inputCant) return;
     
-    const dbProduct = productDB.find(p => p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) || p.codigo.toLowerCase().includes(searchQuery.toLowerCase()));
+    const dbProduct = selectedProduct || productDB.find(p => p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) || p.codigo.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const cant = parseFloat(inputCant);
     
@@ -78,7 +107,7 @@ export const OrdenVentaPage: React.FC = () => {
       return;
     }
 
-    const precio = dbProduct ? dbProduct.precioVenta : 100; // Precio genérico si no existe
+    const precio = dbProduct ? dbProduct.precioVenta : 100;
 
     const newProduct: ProductLine = {
       id: Math.random().toString(),
@@ -93,6 +122,8 @@ export const OrdenVentaPage: React.FC = () => {
     setSearchQuery('');
     setInputCant('');
     setStockDisp('');
+    setSelectedProduct(null);
+    setShowProductDropdown(false);
   };
 
   const removeProduct = (id: string) => {
@@ -169,11 +200,33 @@ export const OrdenVentaPage: React.FC = () => {
       localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
     }
 
-    // 3. Guardar la Orden de Venta en la base de datos de órdenes
+    // 3. Guardar la venta en Supabase como Pendiente con el número de orden unificado
+    try {
+      await ventasService.createVenta({
+        numero: ovId,
+        cliente_id: selectedCliente.id || 'cli-generic',
+        cliente_nombre: selectedCliente.nombre,
+        fecha: new Date().toISOString(),
+        metodo_pago: 'Efectivo',
+        moneda: 'PEN',
+        items: products.map(p => ({
+          id: p.id,
+          descripcion: p.descripcion,
+          cantidad: p.cantidad,
+          precio_unitario: p.precioVenta,
+          subtotal: p.importe
+        })),
+        estado: 'Pendiente',
+        notas: `Orden de venta ${ovId}`
+      });
+    } catch (e) {
+      console.error('Error al guardar venta en Supabase:', e);
+    }
+
+    // Guardar en almacenamiento local sincronizado con el MISMO identificador (sin duplicar)
     const cachedOrders = localStorage.getItem('erp_ordenes_venta');
     const ordersDB = cachedOrders ? JSON.parse(cachedOrders) : [];
     
-    // Formatear items para que coincidan con la estructura que espera Facturación
     const orderItems = products.map(p => ({
       desc: p.descripcion,
       cant: p.cantidad,
@@ -182,37 +235,25 @@ export const OrdenVentaPage: React.FC = () => {
     }));
 
     const newOrder = {
-      id: `OV-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`,
+      id: ovId,
       cliente: selectedCliente.nombre,
-      ruc: selectedCliente.ruc,
+      ruc: selectedCliente.ruc || selectedCliente.documento,
       fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
       total: total,
-      vendedor: 'Vendedor Actual',
       items: orderItems,
       estado: 'Pendiente'
     };
     
-    localStorage.setItem('erp_ordenes_venta', JSON.stringify([newOrder, ...ordersDB]));
+    const filteredLocal = ordersDB.filter((o: any) => o.id !== ovId && o.id !== `VEN-${ovId.replace('OV-2026-', '')}`);
+    localStorage.setItem('erp_ordenes_venta', JSON.stringify([newOrder, ...filteredLocal]));
 
-    showToast(`¡Orden de Venta por S/ ${total.toLocaleString('es-PE', { minimumFractionDigits: 2 })} grabada exitosamente!`);
+    showToast(`¡Orden de Venta ${ovId} grabada con éxito! Se envió al módulo de FACTURACIÓN para la emisión del comprobante.`);
     
     setProducts([]);
     setSearchQuery('');
     setInputCant('');
     setStockDisp('');
     setSelectedCliente(null);
-  };
-
-  const handleNuevaVenta = () => {
-    if (products.length > 0 || searchQuery || inputCant || selectedCliente) {
-      if (window.confirm('¿Estás seguro de limpiar la pantalla para crear una nueva venta?')) {
-        setProducts([]);
-        setSearchQuery('');
-        setInputCant('');
-        setStockDisp('');
-        setSelectedCliente(null);
-      }
-    }
   };
 
   // Colores (Usaremos un azul principal para diferenciarlo de compras que es teal)
@@ -243,15 +284,6 @@ export const OrdenVentaPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={handleNuevaVenta}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-colors border shadow-sm ${
-              darkMode ? 'bg-slate-800 border-slate-700 text-sky-400 hover:bg-slate-700' : 'bg-white border-gray-200 text-sky-500 hover:bg-gray-50'
-            }`}
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            Nueva venta
-          </button>
           <button 
             onClick={handleSaveOrder}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
@@ -293,13 +325,65 @@ export const OrdenVentaPage: React.FC = () => {
                     <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-400' : 'text-gray-400'}`} size={16} />
                     <input 
                       type="text" 
-                      placeholder="Seleccionar producto" 
+                      placeholder="Seleccionar o buscar producto..." 
                       value={searchQuery}
-                      onChange={(e) => handleProductSearch(e.target.value)}
+                      onChange={(e) => {
+                        handleProductSearch(e.target.value);
+                        setShowProductDropdown(true);
+                      }}
+                      onFocus={() => setShowProductDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
                       className={`w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 transition-all ${
                         darkMode ? 'bg-slate-950 border-slate-700 text-white placeholder-slate-500' : 'bg-gray-50 border-gray-200 text-[#2d3436]'
                       }`}
                     />
+
+                    {/* Dropdown de opciones de productos */}
+                    {showProductDropdown && (
+                      <div className={`absolute left-0 right-0 top-full mt-1.5 z-40 rounded-xl shadow-2xl border overflow-hidden max-h-64 overflow-y-auto ${
+                        darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'
+                      }`}>
+                        {filteredProducts.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-gray-500">
+                            No se encontraron productos coincidentes. Puedes crearlos en <strong className="text-sky-600">Mantenimientos</strong>.
+                          </div>
+                        ) : (
+                          filteredProducts.map((p) => (
+                            <div
+                              key={p.id}
+                              onMouseDown={() => {
+                                setSelectedProduct(p);
+                                setSearchQuery(p.descripcion);
+                                setStockDisp(p.stock);
+                                setShowProductDropdown(false);
+                              }}
+                              className={`p-3 border-b last:border-b-0 cursor-pointer flex items-center justify-between transition-colors ${
+                                darkMode ? 'border-slate-800 hover:bg-slate-800/80' : 'border-gray-100 hover:bg-sky-50/60'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">
+                                    {p.codigo}
+                                  </span>
+                                  <span className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                                    {p.descripcion}
+                                  </span>
+                                </div>
+                                <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                                  {p.categoria} • Stock disponible: <span className="font-bold text-sky-600">{p.stock} {p.unidad}</span>
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className={`text-xs font-bold ${darkMode ? 'text-sky-400' : 'text-sky-600'}`}>
+                                  S/ {p.precioVenta.toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="w-full md:w-32">
@@ -411,21 +495,75 @@ export const OrdenVentaPage: React.FC = () => {
             
             {selectedCliente ? (
               <div 
-                className={`w-full p-4 rounded-xl border relative group cursor-pointer transition-all ${
-                  darkMode ? 'border-sky-500/30 bg-sky-500/5 hover:border-sky-500/50' : 'border-sky-500/30 bg-sky-50 hover:border-sky-500/50'
+                className={`w-full p-4 rounded-xl border relative transition-all ${
+                  darkMode ? 'border-sky-500/30 bg-sky-500/5' : 'border-sky-500/30 bg-sky-50/70'
                 }`}
-                onClick={() => setIsModalOpen(true)}
               >
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-2 mb-2">
                   <div>
-                    <p className={`text-sm font-bold mb-1 ${darkMode ? 'text-sky-400' : 'text-sky-600'}`}>{selectedCliente.nombre}</p>
-                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>RUC: {selectedCliente.ruc}</p>
-                    <p className={`text-[12px] ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Condición: {selectedCliente.condicion}</p>
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase mb-1 ${
+                      selectedCliente.tipo_persona === 'JURIDICA'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                    }`}>
+                      {selectedCliente.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural'}
+                    </span>
+                    <h4 className={`text-sm font-bold leading-snug ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                      {selectedCliente.nombre}
+                    </h4>
                   </div>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/50 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="p-1.5 rounded-lg border text-sky-600 hover:bg-sky-100/50 dark:border-slate-700 dark:text-sky-400 dark:hover:bg-slate-800 transition-colors shrink-0"
+                    title="Cambiar cliente"
+                  >
                     <Search size={14} />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 text-xs pt-2 border-t border-sky-100 dark:border-slate-800/80">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Documento:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {selectedCliente.tipo_documento || 'RUC'}: {selectedCliente.ruc || selectedCliente.documento}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Teléfono:</span>
+                    <span className="font-medium text-slate-600 dark:text-slate-300">
+                      {selectedCliente.telefono || 'Sin registrar'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Correo:</span>
+                    <span className="font-medium text-slate-600 dark:text-slate-300 truncate max-w-[180px]" title={selectedCliente.email}>
+                      {selectedCliente.email || 'Sin correo'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Dirección:</span>
+                    <span className="font-medium text-slate-600 dark:text-slate-300 truncate max-w-[180px]" title={selectedCliente.direccion}>
+                      {selectedCliente.direccion || 'Sin dirección'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Condición:</span>
+                    <span className="font-bold text-sky-600 dark:text-sky-400">
+                      {selectedCliente.condicion || 'Contado'}
+                    </span>
                   </div>
                 </div>
+
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="w-full mt-3 py-1.5 text-center text-[11px] font-bold text-sky-600 dark:text-sky-400 hover:underline bg-sky-100/50 dark:bg-sky-950/40 rounded-lg transition-colors"
+                >
+                  Cambiar cliente seleccionado
+                </button>
               </div>
             ) : (
               <button 
@@ -511,7 +649,7 @@ export const OrdenVentaPage: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}
+              className={`relative w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}
             >
               <div className={`px-6 py-4 flex items-center justify-between border-b ${darkMode ? 'border-slate-800' : 'border-gray-100'}`}>
                 <div className="flex items-center gap-3">
@@ -536,7 +674,7 @@ export const OrdenVentaPage: React.FC = () => {
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={18} />
                   <input 
                     type="text" 
-                    placeholder="Cliente / RUC" 
+                    placeholder="Cliente / RUC / DNI / Correo" 
                     value={clienteSearch}
                     onChange={(e) => setClienteSearch(e.target.value)}
                     className={`w-full pl-11 pr-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 transition-all ${
@@ -546,50 +684,76 @@ export const OrdenVentaPage: React.FC = () => {
                 </div>
 
                 <div className={`border rounded-xl overflow-hidden ${darkMode ? 'border-slate-800' : 'border-gray-200'}`}>
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full text-left text-xs table-fixed">
                     <thead className={`${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'}`}>
                       <tr>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CLIENTE</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>RUC</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>TIPO</th>
+                        <th className={`w-[28%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CLIENTE / TIPO</th>
+                        <th className={`w-[14%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DOCUMENTO</th>
+                        <th className={`w-[22%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONTACTO</th>
+                        <th className={`w-[18%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DIRECCIÓN</th>
+                        <th className={`w-[10%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
+                        <th className={`w-[8%] px-4 py-3 font-bold border-b text-center ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>ESTADO</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
                       {clientesDB.filter(c => 
                         c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
-                        c.ruc.includes(clienteSearch)
+                        (c.documento && c.documento.includes(clienteSearch)) ||
+                        (c.ruc && c.ruc.includes(clienteSearch)) ||
+                        (c.email && c.email.toLowerCase().includes(clienteSearch.toLowerCase())) ||
+                        (c.telefono && c.telefono.includes(clienteSearch))
                       ).map(cli => (
                         <tr 
-                          key={cli.ruc}
+                          key={cli.id || cli.documento || cli.ruc}
                           onClick={() => {
                             setSelectedCliente(cli);
                             setIsModalOpen(false);
                             setClienteSearch('');
                           }}
                           className={`cursor-pointer transition-colors ${
-                            darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-gray-50'
+                            darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-sky-50/50'
                           }`}
                         >
-                          <td className={`px-5 py-3.5 font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{cli.nombre}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{cli.ruc}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{cli.condicion}</td>
-                          <td className="px-5 py-3.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${
-                              darkMode ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-100 text-sky-600'
+                          <td className="px-4 py-3">
+                            <p className={`font-bold truncate ${darkMode ? 'text-white' : 'text-slate-800'}`} title={cli.nombre}>{cli.nombre}</p>
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase mt-0.5 ${
+                              cli.tipo_persona === 'JURIDICA'
+                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                                : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
                             }`}>
-                              {cli.tipo}
+                              {cli.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                              {cli.tipo_documento || (cli.documento?.length === 8 ? 'DNI' : 'RUC')}: {cli.documento || cli.ruc}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                            <p className="font-medium text-slate-700 dark:text-slate-300">{cli.telefono}</p>
+                            <p className="text-[10px] text-slate-400 truncate" title={cli.email}>{cli.email}</p>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                            <p className="truncate text-xs" title={cli.direccion}>{cli.direccion}</p>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">
+                            {cli.condicion}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> {cli.estado}
                             </span>
                           </td>
                         </tr>
                       ))}
                       {clientesDB.filter(c => 
                         c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
-                        c.ruc.includes(clienteSearch)
+                        (c.documento && c.documento.includes(clienteSearch)) ||
+                        (c.ruc && c.ruc.includes(clienteSearch))
                       ).length === 0 && (
                         <tr>
-                          <td colSpan={4} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
-                            No se encontraron clientes.
+                          <td colSpan={6} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                            No se encontraron clientes registrados.
                           </td>
                         </tr>
                       )}

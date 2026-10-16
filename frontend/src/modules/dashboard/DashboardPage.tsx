@@ -3,7 +3,7 @@ import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   TrendingUp, TrendingDown, AlertCircle, ShoppingCart, 
-  DollarSign, Percent, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight
+  DollarSign, Percent, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight, FileSpreadsheet
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -13,6 +13,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 import { inventarioService } from '../../services/inventarioService';
+import { supabase } from '@/lib/supabase';
 
 interface DashboardData {
   ventasTotales: number;
@@ -20,11 +21,15 @@ interface DashboardData {
   ctasPendientes: number;
   stockBajo: number;
   margen: number;
-  chartData: any[];
+  chartDataSemanal: { name: string; Ventas: number; Compras: number }[];
+  chartDataMensual: { name: string; Ventas: number; Compras: number }[];
+  chartDataAnual: { name: string; Ventas: number; Compras: number }[];
+  chartData?: any[];
   areaChartData: any[];
   pieData: any[];
   stockList: any[];
   ultimosMovimientos: any[];
+  currentMonthYear: string;
 }
 
 export const DashboardPage: React.FC = () => {
@@ -35,19 +40,50 @@ export const DashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState<'semanal' | 'mensual' | 'anual'>('mensual');
 
-  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6'];
 
   const computeRealData = async (): Promise<DashboardData> => {
-    // 1. Ventas reales
+    // 1. Ventas reales de Supabase y local
+    let dbVentas: any[] = [];
+    try {
+      const { data: vData } = await supabase.from('ventas').select('id, numero, total, fecha, created_at');
+      dbVentas = vData || [];
+    } catch (e) {
+      console.warn('Error fetching ventas from Supabase:', e);
+    }
     const cachedVentas = localStorage.getItem('erp_ordenes_venta');
-    const ventas: any[] = cachedVentas ? JSON.parse(cachedVentas) : [];
-    const ventasTotales = ventas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+    const localVentas: any[] = cachedVentas ? JSON.parse(cachedVentas) : [];
+    
+    const ventasMap = new Map<string, any>();
+    dbVentas.forEach(v => ventasMap.set(v.id || v.numero, v));
+    localVentas.forEach(v => {
+      const key = v.id || v.numero;
+      if (!ventasMap.has(key)) ventasMap.set(key, v);
+    });
+    const allVentas = Array.from(ventasMap.values());
+    const ventasTotales = allVentas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
 
-    // 2. Compras reales
+    // 2. Compras reales de Supabase y local
+    let dbCompras: any[] = [];
+    try {
+      const { data: cData } = await supabase.from('ordenes_compra').select('id, numero, total, fecha, created_at');
+      dbCompras = cData || [];
+    } catch (e) {
+      console.warn('Error fetching compras from Supabase:', e);
+    }
     const cachedCompras = localStorage.getItem('erp_ordenes_compra');
-    const compras: any[] = cachedCompras ? JSON.parse(cachedCompras) : [];
-    const comprasTotales = compras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+    const localCompras: any[] = cachedCompras ? JSON.parse(cachedCompras) : [];
+
+    const comprasMap = new Map<string, any>();
+    dbCompras.forEach(c => comprasMap.set(c.id || c.numero, c));
+    localCompras.forEach(c => {
+      const key = c.id || c.numero;
+      if (!comprasMap.has(key)) comprasMap.set(key, c);
+    });
+    const allCompras = Array.from(comprasMap.values());
+    const comprasTotales = allCompras.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
 
     // 3. Cuentas pendientes reales
     const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
@@ -83,21 +119,77 @@ export const DashboardPage: React.FC = () => {
       monto: m.tipoMovimiento === 'ENTRADA' ? (m.totalEntrada || 0) : (m.totalSalida || 0)
     }));
 
-    // 8. Participación por línea según valorización de inventario
+    // 8. Participación por línea según valorización de inventario (normalizando nombres)
     const catMap: Record<string, number> = {};
     productos.forEach(p => {
-      catMap[p.categoria] = (catMap[p.categoria] || 0) + (p.stock * p.precioVenta);
+      const raw = (p.categoria || (p as any).linea || 'Varios').trim();
+      const normalized = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+      catMap[normalized] = (catMap[normalized] || 0) + ((p.stock || 0) * (p.precioVenta || 0));
     });
     const pieData = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.round(value) }));
     if (pieData.length === 0) {
       pieData.push({ name: 'Sin productos', value: 1 });
     }
 
-    // 9. Datos de comparación real
+    const now = new Date();
+    const currentMonthYear = now.toLocaleDateString('es-PE', { month: 'long', year: 'numeric' }).toUpperCase();
+
+    // 9. Generar Gráfico Semanal (últimos 7 días)
+    const diasShort = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const chartDataSemanal: { name: string; Ventas: number; Compras: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const targetDate = new Date();
+      targetDate.setDate(now.getDate() - i);
+      const targetISO = targetDate.toISOString().slice(0, 10);
+      const dayLabel = `${diasShort[targetDate.getDay()]} ${targetDate.getDate()}`;
+
+      const vSum = allVentas
+        .filter(v => (v.fecha || v.created_at || '').slice(0, 10) === targetISO)
+        .reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+      const cSum = allCompras
+        .filter(c => (c.fecha || c.created_at || '').slice(0, 10) === targetISO)
+        .reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+
+      chartDataSemanal.push({
+        name: dayLabel,
+        Ventas: Math.round(vSum),
+        Compras: Math.round(cSum)
+      });
+    }
+
+    // 10. Generar Gráfico Mensual (últimos 6 meses)
     const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const currentMonth = monthNames[new Date().getMonth()];
-    const chartData = [
-      { name: currentMonth, Ventas: Math.round(ventasTotales), Compras: Math.round(comprasTotales) }
+    const chartDataMensual: { name: string; Ventas: number; Compras: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const targetYear = targetDate.getFullYear();
+      const targetMonth = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const targetYM = `${targetYear}-${targetMonth}`;
+      const label = `${monthNames[targetDate.getMonth()]}`;
+
+      const vSum = allVentas
+        .filter(v => (v.fecha || v.created_at || '').slice(0, 7) === targetYM)
+        .reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+      const cSum = allCompras
+        .filter(c => (c.fecha || c.created_at || '').slice(0, 7) === targetYM)
+        .reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+
+      chartDataMensual.push({
+        name: label,
+        Ventas: Math.round(vSum),
+        Compras: Math.round(cSum)
+      });
+    }
+
+    // 11. Generar Gráfico Anual
+    const chartDataAnual = [
+      { name: '2024', Ventas: 0, Compras: 0 },
+      { name: '2025', Ventas: 0, Compras: 0 },
+      {
+        name: '2026',
+        Ventas: Math.round(ventasTotales),
+        Compras: Math.round(comprasTotales)
+      }
     ];
 
     const areaChartData = [
@@ -114,11 +206,14 @@ export const DashboardPage: React.FC = () => {
       ctasPendientes,
       stockBajo,
       margen,
-      chartData,
+      chartDataSemanal,
+      chartDataMensual,
+      chartDataAnual,
       areaChartData,
       pieData,
       stockList,
-      ultimosMovimientos
+      ultimosMovimientos,
+      currentMonthYear
     };
   };
 
@@ -195,7 +290,7 @@ export const DashboardPage: React.FC = () => {
     autoTable(doc, {
       startY: (doc as any).lastAutoTable.finalY + 20,
       head: [['Mes', 'Total Ventas', 'Total Compras', 'Balance']],
-      body: data.chartData.map(d => [
+      body: data.chartDataMensual.map((d: any) => [
         d.name,
         formatCurrency(d.Ventas),
         formatCurrency(d.Compras),
@@ -239,6 +334,42 @@ export const DashboardPage: React.FC = () => {
     doc.save('Reporte_Completo_ERPSenatino.pdf');
   };
 
+  const handleExportCSV = () => {
+    if (!data) return;
+    let csv = '\uFEFF';
+    csv += 'REPORTE EJECUTIVO - PANEL DE CONTROL ERP\r\n\r\n';
+    csv += 'MÉTRICA;VALOR\r\n';
+    csv += `Ventas Totales;${data.ventasTotales.toFixed(2)}\r\n`;
+    csv += `Compras Totales;${data.comprasTotales.toFixed(2)}\r\n`;
+    csv += `Cuentas Pendientes;${data.ctasPendientes.toFixed(2)}\r\n`;
+    csv += `Stock Crítico;${data.stockBajo} SKU\r\n`;
+    csv += `Margen Bruto;${data.margen}%\r\n\r\n`;
+
+    csv += 'HISTÓRICO MENSUAL DE VENTAS Y COMPRAS\r\n';
+    csv += 'Mes;Ventas S/.;Compras S/.;Balance S/.\r\n';
+    data.chartDataMensual.forEach(m => {
+      csv += `${m.name};${m.Ventas.toFixed(2)};${m.Compras.toFixed(2)};${(m.Ventas - m.Compras).toFixed(2)}\r\n`;
+    });
+
+    csv += '\r\nINVENTARIO Y STOCK CRÍTICO\r\n';
+    csv += 'SKU / Código;Producto;Stock Actual;Stock Mínimo;Estado\r\n';
+    data.stockList.forEach(s => {
+      const sanitized = s.name.replace(/"/g, '""');
+      const estado = s.current <= s.min ? 'BAJO STOCK' : 'ÓPTIMO';
+      csv += `"${s.sku}";"${sanitized}";${s.current};${s.min};${estado}\r\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Resumen_Panel_ERP_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const containerVariants = {
     hidden: { opacity: 0 },
     show: {
@@ -272,20 +403,31 @@ export const DashboardPage: React.FC = () => {
             Panel de Control Estratégico
           </h1>
           <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Resumen operativo de compras, ventas, cobranzas e inventario. Periodo: Junio 2026
+            Resumen operativo de compras, ventas, cobranzas e inventario en tiempo real.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={handleRefresh} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors border ${darkMode ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-            <RefreshCw size={16} />
+        <div className="flex items-center gap-2.5">
+          <button onClick={handleRefresh} className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg transition-colors border ${darkMode ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+            <RefreshCw size={15} />
             Actualizar
           </button>
           <button 
-            onClick={handleExportPDF} 
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors shadow-sm bg-blue-600 hover:bg-blue-700 shadow-blue-600/20"
+            onClick={handleExportCSV} 
+            className={`flex items-center gap-2 px-3.5 py-2 text-sm font-bold rounded-lg transition-colors border shadow-sm ${
+              darkMode 
+                ? 'bg-slate-800 border-slate-700 text-emerald-400 hover:bg-slate-700' 
+                : 'bg-white border-slate-200 text-emerald-700 hover:bg-emerald-50'
+            }`}
           >
-            <Download size={16} />
-            Exportar Reporte PDF
+            <FileSpreadsheet size={15} />
+            Exportar CSV
+          </button>
+          <button 
+            onClick={handleExportPDF} 
+            className="flex items-center gap-2 px-3.5 py-2 text-sm font-bold rounded-lg text-white transition-colors shadow-sm bg-blue-600 hover:bg-blue-700 shadow-blue-600/20"
+          >
+            <Download size={15} />
+            Reporte PDF
           </button>
         </div>
       </div>
@@ -343,25 +485,78 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Main Bar Chart */}
-        <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[380px] flex flex-col`}>
-          <div className="mb-4">
-            <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
-            <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Últimos 6 meses</p>
+        <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[400px] flex flex-col`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
+              <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                {chartPeriod === 'semanal' ? 'Últimos 7 días' : chartPeriod === 'mensual' ? 'Últimos 6 meses' : 'Histórico Anual'}
+              </p>
+            </div>
+
+            {/* Selector de periodo Semanal / Mensual / Anual */}
+            <div className={`flex items-center p-1 rounded-xl border text-xs font-semibold ${
+              darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-100 border-slate-200'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setChartPeriod('semanal')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  chartPeriod === 'semanal'
+                    ? 'bg-blue-600 text-white shadow-sm font-bold'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Semanal
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartPeriod('mensual')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  chartPeriod === 'mensual'
+                    ? 'bg-blue-600 text-white shadow-sm font-bold'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Mensual
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartPeriod('anual')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  chartPeriod === 'anual'
+                    ? 'bg-blue-600 text-white shadow-sm font-bold'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Anual
+              </button>
+            </div>
           </div>
+
           <div className="flex-1 w-full min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <BarChart 
+                data={
+                  chartPeriod === 'semanal' 
+                    ? data.chartDataSemanal 
+                    : chartPeriod === 'mensual' 
+                      ? data.chartDataMensual 
+                      : data.chartDataAnual
+                } 
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `S/ ${(val / 1000)}k`} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `S/ ${(val / 1000).toFixed(0)}k`} />
                 <Tooltip 
                   cursor={{ fill: darkMode ? '#1e293b' : '#f8fafc' }}
                   contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
                   formatter={(value: any) => [formatCurrency(value), '']}
                 />
                 <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px' }} />
-                <Bar dataKey="Ventas" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={24} />
-                <Bar dataKey="Compras" fill={darkMode ? '#38bdf8' : '#bfdbfe'} radius={[4, 4, 0, 0]} barSize={24} />
+                <Bar dataKey="Ventas" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={28} />
+                <Bar dataKey="Compras" fill={darkMode ? '#38bdf8' : '#bfdbfe'} radius={[4, 4, 0, 0]} barSize={28} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -371,7 +566,7 @@ export const DashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* Ventas de la semana (Area Chart) */}
-          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
+          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[340px] flex flex-col`}>
             <div className="mb-2">
               <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas de la semana</h3>
               <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>ÚLTIMOS 7 DÍAS</p>
@@ -398,21 +593,23 @@ export const DashboardPage: React.FC = () => {
           </motion.div>
 
           {/* Participación por línea (Pie Chart) */}
-          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[300px] flex flex-col`}>
+          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} min-h-[340px] flex flex-col`}>
             <div className="mb-2">
               <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Participación por línea</h3>
-              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>JUNIO 2026</p>
+              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                {data.currentMonthYear}
+              </p>
             </div>
-            <div className="flex-1 w-full min-h-0 relative">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="flex-1 w-full min-h-[220px] relative flex flex-col justify-between">
+              <ResponsiveContainer width="100%" height={170}>
                 <PieChart>
                   <Pie
                     data={data.pieData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
+                    innerRadius={55}
+                    outerRadius={75}
+                    paddingAngle={4}
                     dataKey="value"
                     stroke="none"
                   >
@@ -422,14 +619,15 @@ export const DashboardPage: React.FC = () => {
                   </Pie>
                   <Tooltip 
                     contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
+                    formatter={(val: any) => [formatCurrency(val), 'Valor']}
                   />
                 </PieChart>
               </ResponsiveContainer>
               {/* Custom Legend */}
-              <div className="flex flex-wrap justify-center gap-4 mt-2">
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-2 pb-1">
                 {data.pieData.map((entry, index) => (
                   <div key={index} className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></div>
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></div>
                     <span className={`text-[11px] font-medium ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{entry.name}</span>
                   </div>
                 ))}

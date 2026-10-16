@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useOutletContext, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle
+  Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle, ExternalLink, ArrowRight, X, Boxes
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
+import { proveedoresService } from '../../services/proveedoresService';
+import { comprasService } from '../../services/comprasService';
 
 interface ProductLine {
   id: string;
@@ -18,12 +20,18 @@ interface ProductLine {
 
 export const OrdenCompraPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<ProductLine[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [inputCant, setInputCant] = useState('');
   const [inputPrecio, setInputPrecio] = useState('');
   const [descuentoGlobal, setDescuentoGlobal] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [savedOrderAlert, setSavedOrderAlert] = useState<{
+    ocId: string;
+    total: number;
+    proveedor: string;
+  } | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -34,26 +42,46 @@ export const OrdenCompraPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProveedor, setSelectedProveedor] = useState<any>(null);
   const [proveedorSearch, setProveedorSearch] = useState('');
-
-  const proveedoresDB = [
-    { nombre: 'TechSolutions S.A.C.', ruc: '20512345678', condicion: 'Contado' },
-    { nombre: 'Dell Perú S.A.C.', ruc: '20123456789', condicion: '30 días' },
-    { nombre: 'Logitech Latam S.R.L.', ruc: '20987654321', condicion: '15 días' },
-    { nombre: 'HP Inc Perú S.A.', ruc: '20456789123', condicion: 'Contado' },
-  ];
-
+  const [proveedoresDB, setProveedoresDB] = useState<any[]>([]);
   const [productDB, setProductDB] = useState<Producto[]>([]);
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
 
   useEffect(() => {
     inventarioService.getProductos().then(prods => {
       setProductDB(prods);
     });
+    proveedoresService.getProveedores().then(provs => {
+      setProveedoresDB(provs.map(p => ({
+        id: p.id,
+        nombre: p.nombre,
+        tipo_persona: p.tipo_persona || (p.documento?.length === 11 ? 'JURIDICA' : 'NATURAL'),
+        tipo_documento: p.documento?.length === 8 ? 'DNI' : 'RUC',
+        documento: p.documento,
+        ruc: p.documento,
+        email: p.email || 'No registrado',
+        telefono: p.telefono || 'No registrado',
+        direccion: p.direccion || 'No registrada',
+        condicion_pago: p.condicion_pago ?? 30,
+        condicion: p.condicion_pago === 0 ? 'Contado' : `${p.condicion_pago} días`,
+        estado: p.estado || 'Activo'
+      })));
+    });
   }, []);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchQuery) return productDB.slice(0, 8);
+    return productDB.filter(p => 
+      p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.codigo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.categoria && p.categoria.toLowerCase().includes(searchQuery.toLowerCase()))
+    ).slice(0, 8);
+  }, [productDB, searchQuery]);
 
   const handleAddProduct = () => {
     if (!searchQuery || !inputCant || !inputPrecio) return;
     
-    const dbProduct = productDB.find(p => p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) || p.codigo.toLowerCase().includes(searchQuery.toLowerCase()));
+    const dbProduct = selectedProduct || productDB.find(p => p.descripcion.toLowerCase().includes(searchQuery.toLowerCase()) || p.codigo.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const cant = parseFloat(inputCant);
     const precio = parseFloat(inputPrecio);
@@ -64,7 +92,7 @@ export const OrdenCompraPage: React.FC = () => {
       id: Math.random().toString(),
       codigo: dbProduct ? dbProduct.codigo : 'GEN-001',
       descripcion: dbProduct ? dbProduct.descripcion : searchQuery,
-      unidad: dbProduct ? dbProduct.unidad : 'UNID',
+      unidad: dbProduct ? dbProduct.unidad : 'UND',
       cantidad: cant,
       precioUnitario: precio,
       importe: cant * precio
@@ -74,6 +102,8 @@ export const OrdenCompraPage: React.FC = () => {
     setSearchQuery('');
     setInputCant('');
     setInputPrecio('');
+    setSelectedProduct(null);
+    setShowProductDropdown(false);
   };
 
   const removeProduct = (id: string) => {
@@ -88,60 +118,67 @@ export const OrdenCompraPage: React.FC = () => {
 
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const handleSaveOrder = () => {
+  const handleSaveOrder = async () => {
     if (products.length === 0) {
       showToast("No puedes grabar una orden vacía. Agrega al menos un producto.");
       return;
     }
 
     const ocId = `OC-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
-    const cachedOCs = localStorage.getItem('erp_ordenes_compra');
-    const ocs = cachedOCs ? JSON.parse(cachedOCs) : [];
-    const newOC = {
-      id: ocId,
-      proveedor: selectedProveedor ? selectedProveedor.nombre : 'Proveedor General',
-      ruc: selectedProveedor ? selectedProveedor.ruc : '',
-      fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      total,
-      subtotal,
-      igv,
-      items: products.map(p => ({
-        codigo: p.codigo,
-        descripcion: p.descripcion,
-        unidad: p.unidad,
-        cantidad: p.cantidad,
-        precioUnitario: p.precioUnitario,
-        importe: p.importe
-      })),
-      estado: 'Emitida'
-    };
-    localStorage.setItem('erp_ordenes_compra', JSON.stringify([newOC, ...ocs]));
+    const provNombre = selectedProveedor ? selectedProveedor.nombre : 'Proveedor General';
+    const provRuc = selectedProveedor ? selectedProveedor.ruc : '';
 
-    // Obtener los datos actuales del Dashboard desde localStorage
-    const cached = localStorage.getItem('erp_dashboard_data');
-    if (cached) {
-      const dashboardData = JSON.parse(cached);
-      dashboardData.comprasTotales += total;
-      
-      const today = new Date();
-      const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
-      
-      const descProv = selectedProveedor?.nombre ? selectedProveedor.nombre.substring(0, 20) : 'Proveedor';
-      const newMovement = {
-        id: Date.now(),
-        fecha: dateStr,
-        descripcion: `Compra a ${descProv} - Orden #${ocId}`,
-        tipo: 'salida',
-        monto: total
-      };
-
-      dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
-      localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
+    try {
+      await comprasService.createOrdenCompra({
+        codigo: ocId,
+        proveedor_id: selectedProveedor?.id,
+        proveedor_nombre: provNombre,
+        proveedor_documento: provRuc,
+        subtotal,
+        igv,
+        total,
+        items: products.map(p => ({
+          producto_codigo: p.codigo,
+          producto_descripcion: p.descripcion,
+          unidad: p.unidad,
+          cantidad: p.cantidad,
+          costo_unitario: p.precioUnitario,
+          subtotal: p.importe
+        }))
+      });
+    } catch (err) {
+      console.error('Error al guardar OC en backend:', err);
     }
 
-    showToast(`¡Orden ${ocId} por ${formatCurrency(total)} grabada exitosamente!`);
-    
+    // Actualizar datos del Dashboard
+    const cached = localStorage.getItem('erp_dashboard_data');
+    if (cached) {
+      try {
+        const dashboardData = JSON.parse(cached);
+        dashboardData.comprasTotales += total;
+        
+        const today = new Date();
+        const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+        
+        const descProv = provNombre.substring(0, 20);
+        const newMovement = {
+          id: Date.now(),
+          fecha: dateStr,
+          descripcion: `Compra a ${descProv} - Orden #${ocId}`,
+          tipo: 'salida',
+          monto: total
+        };
+
+        dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
+        localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    showToast(`¡Orden de Compra ${ocId} grabada con éxito! Se envió al módulo de ALMACÉN para la recepción de mercadería.`);
+
     // Limpiar el formulario
     setProducts([]);
     setDescuentoGlobal('');
@@ -193,15 +230,6 @@ export const OrdenCompraPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={handleNuevaCompra}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg transition-colors border shadow-sm ${
-              darkMode ? 'bg-slate-800 border-slate-700 text-teal-400 hover:bg-slate-700' : 'bg-white border-gray-200 text-[#00b894] hover:bg-gray-50'
-            }`}
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            Nueva compra
-          </button>
-          <button 
             onClick={handleSaveOrder}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
             style={{ backgroundColor: tealColor }}
@@ -242,13 +270,65 @@ export const OrdenCompraPage: React.FC = () => {
                     <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-400' : 'text-gray-400'}`} size={16} />
                     <input 
                       type="text" 
-                      placeholder="Seleccionar producto" 
+                      placeholder="Seleccionar o buscar producto..." 
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setShowProductDropdown(true);
+                      }}
+                      onFocus={() => setShowProductDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
                       className={`w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-[#00b894]/30 focus:border-[#00b894] transition-all ${
                         darkMode ? 'bg-slate-950 border-slate-700 text-white placeholder-slate-500' : 'bg-gray-50 border-gray-200 text-[#2d3436]'
                       }`}
                     />
+
+                    {/* Dropdown de opciones de productos */}
+                    {showProductDropdown && (
+                      <div className={`absolute left-0 right-0 top-full mt-1.5 z-40 rounded-xl shadow-2xl border overflow-hidden max-h-64 overflow-y-auto ${
+                        darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'
+                      }`}>
+                        {filteredProducts.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-gray-500">
+                            No se encontraron productos coincidentes. Puedes darlos de alta en <strong className="text-teal-600">Mantenimientos</strong>.
+                          </div>
+                        ) : (
+                          filteredProducts.map((p) => (
+                            <div
+                              key={p.id}
+                              onMouseDown={() => {
+                                setSelectedProduct(p);
+                                setSearchQuery(p.descripcion);
+                                setInputPrecio(p.costoUnitario > 0 ? p.costoUnitario.toString() : p.precioVenta.toString());
+                                setShowProductDropdown(false);
+                              }}
+                              className={`p-3 border-b last:border-b-0 cursor-pointer flex items-center justify-between transition-colors ${
+                                darkMode ? 'border-slate-800 hover:bg-slate-800/80' : 'border-gray-100 hover:bg-teal-50/60'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-300">
+                                    {p.codigo}
+                                  </span>
+                                  <span className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                                    {p.descripcion}
+                                  </span>
+                                </div>
+                                <p className={`text-xs mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                                  {p.categoria} • Stock: <span className="font-bold text-teal-600">{p.stock} {p.unidad}</span>
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className={`text-xs font-bold ${darkMode ? 'text-teal-400' : 'text-[#00b894]'}`}>
+                                  S/ {(p.costoUnitario > 0 ? p.costoUnitario : p.precioVenta).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="w-full md:w-32">
@@ -406,21 +486,79 @@ export const OrdenCompraPage: React.FC = () => {
             
             {selectedProveedor ? (
               <div 
-                className={`w-full p-4 rounded-xl border relative group cursor-pointer transition-all ${
-                  darkMode ? 'border-teal-500/30 bg-teal-500/5 hover:border-teal-500/50' : 'border-[#00b894]/30 bg-[#00b894]/5 hover:border-[#00b894]/50'
+                className={`w-full p-4 rounded-xl border relative transition-all ${
+                  darkMode ? 'border-teal-500/30 bg-teal-500/5' : 'border-[#00b894]/30 bg-[#00b894]/5'
                 }`}
-                onClick={() => setIsModalOpen(true)}
               >
-                <div className="flex justify-between items-start">
+                {/* Cabecera del proveedor */}
+                <div className="flex justify-between items-start gap-2 mb-3">
                   <div>
-                    <p className={`text-sm font-bold mb-1 ${darkMode ? 'text-teal-400' : 'text-[#00b894]'}`}>{selectedProveedor.nombre}</p>
-                    <p className={`text-[12px] font-medium mb-0.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>RUC: {selectedProveedor.ruc}</p>
-                    <p className={`text-[12px] ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Condición: {selectedProveedor.condicion}</p>
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider mb-1 ${
+                      selectedProveedor.tipo_persona === 'JURIDICA'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                    }`}>
+                      {selectedProveedor.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural'}
+                    </span>
+                    <p className={`text-sm font-bold leading-snug ${darkMode ? 'text-teal-400' : 'text-[#00b894]'}`}>
+                      {selectedProveedor.nombre}
+                    </p>
                   </div>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/50 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="p-1.5 rounded-lg bg-white/70 dark:bg-slate-800 text-slate-500 hover:text-teal-600 transition-colors shrink-0 shadow-sm"
+                    title="Cambiar proveedor"
+                  >
                     <Search size={14} />
+                  </button>
+                </div>
+
+                {/* Detalles completos solicitados */}
+                <div className={`space-y-1.5 text-xs border-t pt-2.5 ${darkMode ? 'border-slate-800' : 'border-[#00b894]/15'}`}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">{selectedProveedor.tipo_documento || (selectedProveedor.documento?.length === 8 ? 'DNI' : 'RUC')}:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedProveedor.documento || selectedProveedor.ruc}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Condición / Crédito:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedProveedor.condicion}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Teléfono:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedProveedor.telefono || 'No registrado'}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-medium">Correo:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[190px]" title={selectedProveedor.email}>
+                      {selectedProveedor.email || 'No registrado'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-start">
+                    <span className="text-slate-400 font-medium shrink-0">Dirección:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 text-right truncate max-w-[190px]" title={selectedProveedor.direccion}>
+                      {selectedProveedor.direccion || 'No registrada'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-slate-400 font-medium">Estado:</span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      {selectedProveedor.estado || 'Activo'}
+                    </span>
                   </div>
                 </div>
+
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="w-full mt-3 py-1.5 text-center text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline bg-teal-50/60 dark:bg-teal-950/40 rounded-lg transition-colors"
+                >
+                  Cambiar proveedor seleccionado
+                </button>
               </div>
             ) : (
               <button 
@@ -510,7 +648,7 @@ export const OrdenCompraPage: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className={`relative w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}
+              className={`relative w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden ${darkMode ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}
             >
               {/* Modal Header */}
               <div className={`px-6 py-4 flex items-center justify-between border-b ${darkMode ? 'border-slate-800' : 'border-gray-100'}`}>
@@ -537,7 +675,7 @@ export const OrdenCompraPage: React.FC = () => {
                   <Search className={`absolute left-4 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={18} />
                   <input 
                     type="text" 
-                    placeholder="Proveedor / RUC" 
+                    placeholder="Proveedor / RUC / DNI / Correo" 
                     value={proveedorSearch}
                     onChange={(e) => setProveedorSearch(e.target.value)}
                     className={`w-full pl-11 pr-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-[#00b894]/30 focus:border-[#00b894] transition-all ${
@@ -547,47 +685,76 @@ export const OrdenCompraPage: React.FC = () => {
                 </div>
 
                 <div className={`border rounded-xl overflow-hidden ${darkMode ? 'border-slate-800' : 'border-gray-200'}`}>
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full text-left text-xs table-fixed">
                     <thead className={`${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'}`}>
                       <tr>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>PROVEEDOR</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>RUC</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
-                        <th className={`px-5 py-3 text-xs font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>ESTADO</th>
+                        <th className={`w-[28%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>PROVEEDOR / TIPO</th>
+                        <th className={`w-[14%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DOCUMENTO</th>
+                        <th className={`w-[22%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONTACTO</th>
+                        <th className={`w-[18%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>DIRECCIÓN</th>
+                        <th className={`w-[10%] px-4 py-3 font-bold border-b ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>CONDICIÓN</th>
+                        <th className={`w-[8%] px-4 py-3 font-bold border-b text-center ${darkMode ? 'text-slate-400 border-slate-800' : 'text-gray-500 border-gray-200'}`}>ESTADO</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
                       {proveedoresDB.filter(p => 
                         p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase()) || 
-                        p.ruc.includes(proveedorSearch)
+                        (p.documento && p.documento.includes(proveedorSearch)) ||
+                        (p.ruc && p.ruc.includes(proveedorSearch)) ||
+                        (p.email && p.email.toLowerCase().includes(proveedorSearch.toLowerCase())) ||
+                        (p.telefono && p.telefono.includes(proveedorSearch))
                       ).map(prov => (
                         <tr 
-                          key={prov.ruc}
+                          key={prov.id || prov.documento || prov.ruc}
                           onClick={() => {
                             setSelectedProveedor(prov);
                             setIsModalOpen(false);
                             setProveedorSearch('');
                           }}
                           className={`cursor-pointer transition-colors ${
-                            darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-gray-50'
+                            darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-teal-50/50'
                           }`}
                         >
-                          <td className={`px-5 py-3.5 font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>{prov.nombre}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{prov.ruc}</td>
-                          <td className={`px-5 py-3.5 ${darkMode ? 'text-slate-300' : 'text-gray-600'}`}>{prov.condicion}</td>
-                          <td className="px-5 py-3.5">
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#00b894]">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#00b894]"></span> Activo
+                          <td className="px-4 py-3">
+                            <p className={`font-bold truncate ${darkMode ? 'text-white' : 'text-slate-800'}`} title={prov.nombre}>{prov.nombre}</p>
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase mt-0.5 ${
+                              prov.tipo_persona === 'JURIDICA'
+                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                                : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                            }`}>
+                              {prov.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                              {prov.tipo_documento || (prov.documento?.length === 8 ? 'DNI' : 'RUC')}: {prov.documento || prov.ruc}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                            <p className="font-medium text-slate-700 dark:text-slate-300">{prov.telefono}</p>
+                            <p className="text-[10px] text-slate-400 truncate" title={prov.email}>{prov.email}</p>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                            <p className="truncate text-xs" title={prov.direccion}>{prov.direccion}</p>
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">
+                            {prov.condicion}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#00b894]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#00b894]"></span> {prov.estado}
                             </span>
                           </td>
                         </tr>
                       ))}
                       {proveedoresDB.filter(p => 
                         p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase()) || 
-                        p.ruc.includes(proveedorSearch)
+                        (p.documento && p.documento.includes(proveedorSearch)) ||
+                        (p.ruc && p.ruc.includes(proveedorSearch)) ||
+                        (p.email && p.email.toLowerCase().includes(proveedorSearch.toLowerCase()))
                       ).length === 0 && (
                         <tr>
-                          <td colSpan={4} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                          <td colSpan={6} className={`px-5 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                             No se encontraron proveedores que coincidan con la búsqueda.
                           </td>
                         </tr>
@@ -616,7 +783,7 @@ export const OrdenCompraPage: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Toast Notification */}
+      {/* Toast Simple (Avisos rápidos) */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div 

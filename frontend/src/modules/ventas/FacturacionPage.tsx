@@ -1,26 +1,100 @@
-import React, { useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useOutletContext, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  FileText, CheckCircle, Search, CreditCard, Clock, Building, ArrowRight
+  FileText, CheckCircle, Search, CreditCard, Clock, Building, ArrowRight, AlertCircle, ShoppingBag
 } from 'lucide-react';
+import { ventasService } from '../../services/ventasService';
+import { supabase } from '@/lib/supabase';
 
 export const FacturacionPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   
   // Órdenes pendientes generadas desde Orden de Venta
-  const [pendingOrders, setPendingOrders] = useState<any[]>(() => {
-    const cachedOrders = localStorage.getItem('erp_ordenes_venta');
-    if (cachedOrders) {
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadPendingOrders = async () => {
       try {
-        const localOrders = JSON.parse(cachedOrders);
-        return Array.isArray(localOrders) ? localOrders : [];
+        const dbVentas = await ventasService.getVentas();
+        const cachedOrders = localStorage.getItem('erp_ordenes_venta');
+        const localOrders = cachedOrders ? JSON.parse(cachedOrders) : [];
+        const billedOrders = new Set<string>(JSON.parse(localStorage.getItem('erp_ordenes_facturadas') || '[]'));
+
+        // Filtrar dbVentas que NO estén ya facturadas o completadas
+        const pendingDbVentas = dbVentas.filter(v => {
+          if (v.numero && (v.numero.startsWith('F001') || v.numero.startsWith('B001'))) return false;
+          if (v.estado !== 'Pendiente') return false;
+          if (billedOrders.has(v.id) || (v.numero && billedOrders.has(v.numero))) return false;
+          return true;
+        });
+
+        // Identificar IDs de órdenes ya presentes en Supabase (en numero o en notas)
+        const knownOrderRefs = new Set<string>();
+        dbVentas.forEach(v => {
+          if (v.numero) knownOrderRefs.add(v.numero);
+          if (v.notas) {
+            const match = v.notas.match(/OV-\d+-\d+/);
+            if (match) knownOrderRefs.add(match[0]);
+          }
+        });
+
+        // Convertir ventas pendientes de Supabase a formato de órdenes pendientes
+        const formattedDb = pendingDbVentas.map(v => {
+          const ovMatch = v.notas?.match(/OV-\d+-\d+/);
+          const displayId = ovMatch ? ovMatch[0] : (v.numero || v.id);
+          return {
+            id: displayId,
+            dbId: v.id,
+            cliente: v.cliente_nombre,
+            ruc: '',
+            fecha: new Date(v.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+            total: v.total,
+            items: (v.items || []).map((i: any) => ({
+              desc: i.descripcion,
+              cant: i.cantidad,
+              pUnitario: i.precio_unitario,
+              total: i.subtotal
+            })),
+            estado: 'Pendiente'
+          };
+        }).filter(o => !billedOrders.has(o.id));
+
+        // Filtrar órdenes locales para descartar aquellas que ya están en Supabase o ya facturadas
+        const unrepresentedLocal = localOrders.filter((lo: any) => !knownOrderRefs.has(lo.id) && !billedOrders.has(lo.id));
+
+        // Deduplicar estrictamente por ID y por combinación de cliente y monto
+        const map = new Map<string, any>();
+        [...formattedDb, ...unrepresentedLocal].forEach(o => {
+          const uniqueKey = o.id || `${o.cliente}-${o.total}`;
+          const signature = `${o.cliente.trim().toLowerCase()}-${Number(o.total).toFixed(2)}`;
+          
+          let alreadyExists = false;
+          for (const existing of map.values()) {
+            const existingSig = `${existing.cliente.trim().toLowerCase()}-${Number(existing.total).toFixed(2)}`;
+            if (existing.id === o.id || existingSig === signature) {
+              alreadyExists = true;
+              break;
+            }
+          }
+
+          if (!alreadyExists) {
+            map.set(uniqueKey, o);
+          }
+        });
+
+        const uniqueOrders = Array.from(map.values());
+
+        // Actualizar localStorage para limpiar cualquier registro duplicado histórico
+        localStorage.setItem('erp_ordenes_venta', JSON.stringify(uniqueOrders));
+
+        setPendingOrders(uniqueOrders);
       } catch (e) {
-        return [];
+        console.error('Error cargando ventas para facturación:', e);
       }
-    }
-    return [];
-  });
+    };
+    loadPendingOrders();
+  }, []);
 
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,28 +116,37 @@ export const FacturacionPage: React.FC = () => {
       const invoiceNumber = `F001-${Math.floor(Math.random() * 9000) + 1000}`;
       showToast(`¡Comprobante ${invoiceNumber} registrado con éxito en contabilidad!`);
       
-      // 1. Quitar de Órdenes Pendientes
-      setPendingOrders(pendingOrders.filter(o => o.id !== selectedOrder.id));
+      // 1. Quitar de Órdenes Pendientes inmediatamente
+      setPendingOrders(prev => prev.filter(o => o.id !== selectedOrder.id && (!selectedOrder.dbId || o.dbId !== selectedOrder.dbId)));
+
+      // 2. Registrar en lista negra de facturadas para que no vuelva a aparecer jamás
+      const currentBilled: string[] = JSON.parse(localStorage.getItem('erp_ordenes_facturadas') || '[]');
+      if (selectedOrder.id) currentBilled.push(selectedOrder.id);
+      if (selectedOrder.dbId) currentBilled.push(selectedOrder.dbId);
+      localStorage.setItem('erp_ordenes_facturadas', JSON.stringify([...new Set(currentBilled)]));
+
       const cachedOrders = localStorage.getItem('erp_ordenes_venta');
       if (cachedOrders) {
         const localOrders = JSON.parse(cachedOrders);
-        const updatedLocal = localOrders.filter((o: any) => o.id !== selectedOrder.id);
+        const updatedLocal = localOrders.filter((o: any) => o.id !== selectedOrder.id && (!selectedOrder.dbId || o.dbId !== selectedOrder.dbId));
         localStorage.setItem('erp_ordenes_venta', JSON.stringify(updatedLocal));
       }
 
-      // 2. Enviar a Estado de Cuenta
+      // 3. Enviar a Estado de Cuenta
       const cachedCuenta = localStorage.getItem('erp_estado_cuenta');
       const cuentaDB = cachedCuenta ? JSON.parse(cachedCuenta) : [];
       
       const combinedProductsStr = selectedOrder.items.map((i: any) => `${i.cant}x ${i.desc}`).join(', ');
 
       const newInvoice = {
+        dbId: selectedOrder.dbId,
         tipo: selectedOrder.cliente.includes('S.A.') || selectedOrder.cliente.includes('E.I.R.L.') || selectedOrder.ruc?.startsWith('20') ? 'FACTURA ELECTRÓNICA' : 'BOLETA DE VENTA ELECTRÓNICA',
         fecha: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
+        rawFecha: new Date().toISOString(),
         nro: invoiceNumber,
         razonSocial: selectedOrder.cliente,
         productos: combinedProductsStr,
-        vendedor: selectedOrder.vendedor,
+        metodoPago: 'Efectivo',
         estado: 'PENDIENTE',
         total: selectedOrder.total,
         saldo: selectedOrder.total,
@@ -71,6 +154,15 @@ export const FacturacionPage: React.FC = () => {
       };
 
       localStorage.setItem('erp_estado_cuenta', JSON.stringify([newInvoice, ...cuentaDB]));
+
+      // 4. Si la orden provenía de Supabase, actualizar con el número de comprobante y estado Completada
+      if (selectedOrder.dbId) {
+        supabase.from('ventas').update({
+          numero: invoiceNumber,
+          estado: 'Completada',
+          notas: `Comprobante emitido para orden ${selectedOrder.id}`
+        }).eq('id', selectedOrder.dbId).then();
+      }
       
       setSelectedOrder(null);
     }, 1500);
@@ -78,10 +170,15 @@ export const FacturacionPage: React.FC = () => {
 
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  const filteredOrders = pendingOrders.filter(o => 
-    o.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    o.cliente.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredOrders = pendingOrders.filter(o => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      (o.id && o.id.toLowerCase().includes(q)) || 
+      (o.cliente && o.cliente.toLowerCase().includes(q)) ||
+      (o.ruc && o.ruc.includes(q))
+    );
+  });
 
   return (
     <motion.div 
@@ -166,9 +263,28 @@ export const FacturacionPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
             <AnimatePresence>
               {filteredOrders.length === 0 ? (
-                <div className="text-center py-10 opacity-50">
-                  <CheckCircle size={32} className="mx-auto mb-3 text-emerald-500" />
-                  <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>No hay órdenes pendientes.</p>
+                <div className="text-center py-10 px-4">
+                  <div className={`w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                    darkMode ? 'bg-slate-800 text-slate-400' : 'bg-blue-50 text-[#0ea5e9]'
+                  }`}>
+                    {searchQuery ? <Search size={20} /> : <ShoppingBag size={20} />}
+                  </div>
+                  <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
+                    {searchQuery ? `No hay órdenes para "${searchQuery}"` : 'No hay órdenes pendientes'}
+                  </p>
+                  <p className={`text-xs mt-1 leading-relaxed ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
+                    {searchQuery 
+                      ? 'Verifica que la orden pertenezca a un Cliente registrado en el área de Ventas.' 
+                      : 'Crea una orden en Ventas → Orden de venta para poder emitir su factura aquí.'}
+                  </p>
+                  {!searchQuery && (
+                    <Link
+                      to="/orden-venta"
+                      className="inline-flex items-center gap-1.5 mt-4 px-3.5 py-1.5 rounded-lg bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-xs font-bold transition-colors shadow-sm"
+                    >
+                      Ir a Orden de venta
+                    </Link>
+                  )}
                 </div>
               ) : (
                 filteredOrders.map(order => (
@@ -229,7 +345,7 @@ export const FacturacionPage: React.FC = () => {
                     <div className={`text-right ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>
                       <p className="text-xs font-bold uppercase tracking-wider mb-1">Referencia</p>
                       <p className="text-sm font-mono font-bold">{selectedOrder.id}</p>
-                      <p className="text-xs mt-1">Vendedor: {selectedOrder.vendedor}</p>
+                      <p className="text-xs mt-1">Estado: Pendiente</p>
                     </div>
                   </div>
 
@@ -376,7 +492,7 @@ export const FacturacionPage: React.FC = () => {
                   <div className="border-b-2 border-black my-3"></div>
                   
                   <div className="mb-3 font-bold text-base">
-                    <p>VENDEDOR(A): {selectedOrder.vendedor.toUpperCase()}</p>
+                    <p>CONDICIÓN: CONTADO / EFECTIVO</p>
                   </div>
                   
                   <div className="border-b-2 border-black my-3"></div>

@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon
+  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon,
+  Users, Building2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '@/lib/supabase';
 
 const MENU_SECTIONS = [
   {
@@ -17,12 +19,15 @@ const MENU_SECTIONS = [
   {
     title: 'COMPRAS',
     items: [
+      { name: 'Proveedores', path: '/proveedores', icon: <Building2 size={20} /> },
       { name: 'Orden de compra', path: '/orden-compra', icon: <ShoppingCart size={20} /> },
     ]
   },
   {
     title: 'VENTAS',
     items: [
+      { name: 'Clientes', path: '/clientes', icon: <Users size={20} /> },
+      { name: 'Cotizaciones', path: '/cotizaciones', icon: <FileText size={20} /> },
       { name: 'Orden de venta', path: '/orden-venta', icon: <Receipt size={20} /> },
       { name: 'Facturación', path: '/facturacion', icon: <FileText size={20} /> },
       { name: 'Estado de cuenta', path: '/estado-cuenta', icon: <FileBarChart size={20} /> },
@@ -31,9 +36,9 @@ const MENU_SECTIONS = [
   {
     title: 'INVENTARIOS',
     items: [
+      { name: 'Stock de productos', path: '/stock-productos', icon: <Boxes size={20} /> },
       { name: 'Ingreso al Kardex', path: '/ingreso-kardex', icon: <Package size={20} /> },
       { name: 'Movimiento de Kardex', path: '/movimiento-kardex', icon: <ArrowRightLeft size={20} /> },
-      { name: 'Stock de productos', path: '/stock-productos', icon: <Boxes size={20} /> },
     ]
   },
   {
@@ -46,8 +51,28 @@ const MENU_SECTIONS = [
 ];
 
 export const MainLayout: React.FC = () => {
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    navigate('/login');
+  };
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -174,7 +199,7 @@ export const MainLayout: React.FC = () => {
              </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button onClick={toggleDarkMode} className={`p-2 rounded-full transition-colors ${darkMode ? 'hover:bg-slate-800 bg-slate-800' : 'hover:bg-slate-100 bg-slate-50'}`}>
               {darkMode ? <Sun size={18} className="text-yellow-400" /> : <Moon size={18} className="text-slate-600" />}
             </button>
@@ -182,9 +207,32 @@ export const MainLayout: React.FC = () => {
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900"></span>
             </button>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm cursor-pointer border-2 border-white dark:border-slate-800">
-              MR
-            </div>
+            
+            {currentUser ? (
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
+                <div 
+                  className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-sm border-2 border-white dark:border-slate-800"
+                  title={currentUser.email}
+                >
+                  {currentUser.email ? currentUser.email.substring(0, 2).toUpperCase() : 'US'}
+                </div>
+                <button
+                  onClick={handleSignOut}
+                  title="Cerrar sesión"
+                  className="p-2 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <LogOut size={17} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => navigate('/login')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors"
+              >
+                <LogIn size={15} />
+                <span>Ingresar</span>
+              </button>
+            )}
           </div>
         </header>
 

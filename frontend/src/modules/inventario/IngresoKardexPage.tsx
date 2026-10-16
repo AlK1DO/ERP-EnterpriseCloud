@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Package, Plus, Trash2, CheckCircle, Search, 
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
 import { proveedoresService, type Proveedor } from '../../services/proveedoresService';
+import { comprasService } from '../../services/comprasService';
 
 interface ItemIngreso {
   id: string;
@@ -22,6 +23,7 @@ interface ItemIngreso {
 export const IngresoKardexPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -51,14 +53,20 @@ export const IngresoKardexPage: React.FC = () => {
     inventarioService.getProductos().then(setProductos);
     proveedoresService.getProveedores().then(setProveedores);
 
-    const cachedOC = localStorage.getItem('erp_ordenes_compra');
-    if (cachedOC) {
-      try {
-        setOrdenesCompra(JSON.parse(cachedOC));
-      } catch (e) {
-        setOrdenesCompra([]);
+    comprasService.getOrdenesCompra().then(ocs => {
+      if (ocs && ocs.length > 0) {
+        setOrdenesCompra(ocs);
+      } else {
+        const cachedOC = localStorage.getItem('erp_ordenes_compra');
+        if (cachedOC) {
+          try {
+            setOrdenesCompra(JSON.parse(cachedOC));
+          } catch (e) {
+            setOrdenesCompra([]);
+          }
+        }
       }
-    }
+    });
   }, []);
 
   const showToast = (msg: string) => {
@@ -70,35 +78,51 @@ export const IngresoKardexPage: React.FC = () => {
     setSelectedOCId(ocId);
     if (!ocId) return;
 
-    const oc = ordenesCompra.find(o => o.id === ocId);
+    const oc = ordenesCompra.find(o => o.id === ocId || o.codigo === ocId);
     if (oc) {
       setDocumentoTipo('ORDEN DE COMPRA');
-      setDocumentoNumero(oc.id);
+      setDocumentoNumero(oc.codigo || oc.id);
       setTipoOperacion('COMPRA');
-      if (oc.proveedor) {
-        const provMatch = proveedores.find(p => p.nombre.toLowerCase().includes(oc.proveedor.toLowerCase()));
+      const provNombre = oc.proveedor_nombre || oc.proveedor || '';
+      if (provNombre) {
+        const provMatch = proveedores.find(p => p.nombre.toLowerCase().includes(provNombre.toLowerCase()));
         if (provMatch) setSelectedProveedorId(provMatch.id);
       }
 
       if (oc.items && oc.items.length > 0) {
         const mappedItems: ItemIngreso[] = oc.items.map((it: any) => {
-          const prodMatch = productos.find(p => p.codigo === it.codigo || p.descripcion === it.descripcion);
+          const itCodigo = it.producto_codigo || it.codigo || '';
+          const itDesc = it.producto_descripcion || it.descripcion || '';
+          const itCant = Number(it.cantidad) || 1;
+          const itPrecio = Number(it.costo_unitario || it.precioUnitario) || 0;
+          const prodMatch = productos.find(p => p.codigo === itCodigo || p.descripcion === itDesc);
           return {
             id: Math.random().toString(),
             productoId: prodMatch ? prodMatch.id : '',
-            codigo: it.codigo,
-            descripcion: it.descripcion,
+            codigo: itCodigo,
+            descripcion: itDesc,
             almacen: almacenDestino,
-            cantidad: Number(it.cantidad) || 1,
-            costoUnitario: Number(it.precioUnitario) || 0,
-            total: (Number(it.cantidad) || 1) * (Number(it.precioUnitario) || 0)
+            cantidad: itCant,
+            costoUnitario: itPrecio,
+            total: itCant * itPrecio
           };
         });
         setItems(mappedItems);
-        showToast(`Items importados desde la orden ${oc.id}`);
+        showToast(`Items importados desde la orden ${oc.codigo || oc.id}`);
       }
     }
   };
+
+  // Detectar parámetro ?oc= en la URL y auto-seleccionar la orden
+  useEffect(() => {
+    if (ordenesCompra.length > 0) {
+      const searchParams = new URLSearchParams(location.search);
+      const ocParam = searchParams.get('oc');
+      if (ocParam) {
+        handleSelectOC(ocParam);
+      }
+    }
+  }, [location.search, ordenesCompra]);
 
   const handleAddItem = () => {
     if (!selectedProdId || !inputCantidad || !inputCosto) {
@@ -312,11 +336,16 @@ export const IngresoKardexPage: React.FC = () => {
                   className={`px-3 py-2 rounded-lg border text-xs font-semibold ${darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-blue-200 text-blue-900'}`}
                 >
                   <option value="">Seleccionar Orden de Compra...</option>
-                  {ordenesCompra.map(oc => (
-                    <option key={oc.id} value={oc.id}>
-                      {oc.id} - {oc.proveedor} ({oc.estado})
-                    </option>
-                  ))}
+                  {ordenesCompra.map(oc => {
+                    const ocCode = oc.codigo || oc.id;
+                    const ocProv = oc.proveedor_nombre || oc.proveedor || 'Proveedor General';
+                    const ocEstado = oc.estado || 'Emitida';
+                    return (
+                      <option key={ocCode} value={ocCode}>
+                        {ocCode} - {ocProv} ({ocEstado})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}
