@@ -4,5 +4,8 @@
   "private": true,
   "scripts": {
     "build": "cd frontend && npm run build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0"
   }
 }
