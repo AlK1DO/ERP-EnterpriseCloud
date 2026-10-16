@@ -8,6 +8,7 @@ import {
 import { inventarioService, type Producto } from '../../services/inventarioService';
 import { proveedoresService, type Proveedor } from '../../services/proveedoresService';
 import { comprasService } from '../../services/comprasService';
+import { supabase } from '@/lib/supabase';
 
 interface ItemIngreso {
   id: string;
@@ -193,7 +194,7 @@ export const IngresoKardexPage: React.FC = () => {
             unidad: 'UND',
             costoUnitario: item.costoUnitario,
             precioVenta: item.costoUnitario * 1.3,
-            stock: 0,
+            stockInicial: 0,
             stockMinimo: 5,
             almacen: item.almacen || almacenDestino
           });
