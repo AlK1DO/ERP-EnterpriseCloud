@@ -344,14 +344,13 @@ export const StockProductosPage: React.FC = () => {
                 <th className="px-5 py-3.5 text-right">Mínimo</th>
                 <th className="px-5 py-3.5 text-right">Valor Total</th>
                 <th className="px-5 py-3.5 text-center">Estado</th>
-                <th className="px-5 py-3.5 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
               <AnimatePresence>
                 {filteredProductos.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="py-16 text-center">
+                    <td colSpan={10} className="py-16 text-center">
                       <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 ${darkMode ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'}`}>
                         <Package size={24} />
                       </div>
@@ -407,24 +406,6 @@ export const StockProductosPage: React.FC = () => {
                               Normal
                             </span>
                           )}
-                        </td>
-                        <td className="px-5 py-3.5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button 
-                              onClick={() => handleOpenEdit(prod)}
-                              className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500'}`}
-                              title="Editar producto"
-                            >
-                              <Edit2 size={15} />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(prod.id, prod.descripcion)}
-                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
-                              title="Eliminar producto"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
                         </td>
                       </motion.tr>
                     );

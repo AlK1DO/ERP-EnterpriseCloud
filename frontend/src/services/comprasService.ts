@@ -32,22 +32,30 @@ export const comprasService = {
   // Obtener órdenes de compra
   getOrdenesCompra: async (): Promise<OrdenCompra[]> => {
     try {
-      const { data, error } = await supabase
+      let data: any[] | null = null;
+      
+      // 1. Intentamos consultar con relación explícita
+      const { data: directData, error: directError } = await supabase
         .from('ordenes_compra')
         .select(`
           id,
           codigo,
+          numero,
           proveedor_id,
           proveedor_nombre,
           proveedor_documento,
+          proveedor_ruc,
           subtotal,
           igv,
           total,
           moneda,
           estado,
           observaciones,
+          notas,
           fecha_emision,
-          items:ordenes_compra_items(
+          fecha,
+          created_at,
+          items:ordenes_compra_items!orden_id(
             id,
             producto_id,
             producto_codigo,
@@ -58,40 +66,57 @@ export const comprasService = {
             subtotal
           )
         `)
-        .order('fecha_emision', { ascending: false });
+        .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error al obtener órdenes de compra de Supabase:', error.message);
+      if (!directError && directData) {
+        data = directData;
+      } else {
+        // Fallback: consulta directa sin embed ambiguo para compatibilidad universal
+        const { data: ocsData } = await supabase
+          .from('ordenes_compra')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (ocsData && ocsData.length > 0) {
+          const { data: itemsData } = await supabase.from('ordenes_compra_items').select('*');
+          data = ocsData.map((oc: any) => ({
+            ...oc,
+            items: (itemsData || []).filter((it: any) => it.orden_id === oc.id || it.orden_compra_id === oc.id)
+          }));
+        }
+      }
+
+      if (!data || data.length === 0) {
         const cached = localStorage.getItem('erp_ordenes_compra');
         return cached ? JSON.parse(cached) : [];
       }
 
-      return (data || []).map((oc: any) => ({
+      return data.map((oc: any) => ({
         id: oc.id,
-        codigo: oc.codigo,
+        codigo: oc.codigo || oc.numero || 'OC-0000',
         proveedor_id: oc.proveedor_id,
-        proveedor_nombre: oc.proveedor_nombre,
-        proveedor_documento: oc.proveedor_documento || '',
+        proveedor_nombre: oc.proveedor_nombre || 'Proveedor General',
+        proveedor_documento: oc.proveedor_documento || oc.proveedor_ruc || '',
         subtotal: Number(oc.subtotal) || 0,
         igv: Number(oc.igv) || 0,
         total: Number(oc.total) || 0,
         moneda: oc.moneda || 'PEN',
         estado: oc.estado || 'EMITIDA',
-        observaciones: oc.observaciones || '',
-        fecha_emision: oc.fecha_emision || new Date().toISOString(),
+        observaciones: oc.observaciones || oc.notas || '',
+        fecha_emision: oc.fecha_emision || oc.fecha || oc.created_at || new Date().toISOString(),
         items: (oc.items || []).map((it: any) => ({
           id: it.id,
           producto_id: it.producto_id,
-          producto_codigo: it.producto_codigo,
-          producto_descripcion: it.producto_descripcion,
-          unidad: it.unidad,
+          producto_codigo: it.producto_codigo || it.codigo || '',
+          producto_descripcion: it.producto_descripcion || it.descripcion || '',
+          unidad: it.unidad || 'UND',
           cantidad: Number(it.cantidad) || 0,
-          costo_unitario: Number(it.costo_unitario) || 0,
-          subtotal: Number(it.subtotal) || 0
+          costo_unitario: Number(it.costo_unitario || it.precioUnitario) || 0,
+          subtotal: Number(it.subtotal || it.importe) || 0
         }))
       }));
     } catch (err) {
-      console.error('Error en getOrdenesCompra:', err);
+      console.warn('Fallback a respaldo local para órdenes de compra:', err);
       const cached = localStorage.getItem('erp_ordenes_compra');
       return cached ? JSON.parse(cached) : [];
     }

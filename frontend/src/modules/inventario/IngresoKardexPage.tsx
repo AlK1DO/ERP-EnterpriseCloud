@@ -177,9 +177,31 @@ export const IngresoKardexPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
+      const currentProds = await inventarioService.getProductos();
+
       for (const item of items) {
+        let prodId = item.productoId;
+        const match = currentProds.find(p => p.id === prodId || p.codigo === item.codigo || p.descripcion === item.descripcion);
+        if (match) {
+          prodId = match.id;
+        } else {
+          // Si el producto no existía en la base de datos, crearlo automáticamente
+          const nuevo = await inventarioService.createProducto({
+            codigo: item.codigo,
+            descripcion: item.descripcion,
+            categoria: 'General',
+            unidad: 'UND',
+            costoUnitario: item.costoUnitario,
+            precioVenta: item.costoUnitario * 1.3,
+            stock: 0,
+            stockMinimo: 5,
+            almacen: item.almacen || almacenDestino
+          });
+          prodId = nuevo.id;
+        }
+
         await inventarioService.registrarMovimiento({
-          productoId: item.productoId,
+          productoId: prodId,
           productoCodigo: item.codigo,
           productoDescripcion: item.descripcion,
           tipoMovimiento: 'ENTRADA',
@@ -195,9 +217,18 @@ export const IngresoKardexPage: React.FC = () => {
 
       showToast(`¡Ingreso registrado con éxito! Kardex actualizado.`);
 
-      // Si venía de una orden de compra, marcamos como atendida
+      // Si venía de una orden de compra, marcamos como atendida en Supabase y local
       if (selectedOCId) {
-        const updatedOCs = ordenesCompra.map(o => o.id === selectedOCId ? { ...o, estado: 'Ingresado al Kardex' } : o);
+        try {
+          await supabase
+            .from('ordenes_compra')
+            .update({ estado: 'RECEPCIONADA' })
+            .or(`id.eq.${selectedOCId},codigo.eq.${selectedOCId}`);
+        } catch (e) {
+          console.warn('Actualización local completada:', e);
+        }
+
+        const updatedOCs = ordenesCompra.map(o => (o.id === selectedOCId || o.codigo === selectedOCId) ? { ...o, estado: 'Ingresado al Kardex' } : o);
         localStorage.setItem('erp_ordenes_compra', JSON.stringify(updatedOCs));
         setOrdenesCompra(updatedOCs);
       }

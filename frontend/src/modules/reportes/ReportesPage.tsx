@@ -130,16 +130,59 @@ export const ReportesPage: React.FC = () => {
 
       if (selectedTemplate.category === 'COMPRAS') {
         const { data } = await supabase.from('ordenes_compra').select('*').order('created_at', { ascending: false });
-        mappedRecords = (data || []).map((c: any) => ({
-          id: c.id,
-          documento: c.numero || 'OC-0000',
-          entidad: c.proveedor_nombre || 'Proveedor',
-          fecha: new Date(c.fecha || c.created_at).toLocaleDateString('es-PE'),
-          importe: Number(c.total) || 0,
-          estado: c.estado === 'Recibida' ? 'PAGADO' : (c.estado === 'Cancelada' ? 'ANULADO' : 'PENDIENTE'),
-          categoria: 'COMPRAS',
-          extraInfo: c.proveedor_nombre || ''
-        }));
+
+        // Cargar también respaldo local para combinar y sincronizar estados
+        const cachedCompras = localStorage.getItem('erp_ordenes_compra');
+        const localList: any[] = cachedCompras ? JSON.parse(cachedCompras) : [];
+        const localMap = new Map<string, any>();
+        localList.forEach((item: any) => {
+          const key = item.codigo || item.id || item.numero;
+          if (key) localMap.set(key, item);
+        });
+
+        mappedRecords = (data || []).map((c: any) => {
+          const key = c.codigo || c.numero || c.id;
+          const localItem = localMap.get(key);
+          const rawEstado = (localItem?.estado || c.estado || '').toUpperCase();
+          const esAnulado = ['ANULADO', 'ANULADA', 'CANCELADA', 'CANCELADO'].includes(rawEstado);
+          const esPendiente = ['BORRADOR'].includes(rawEstado);
+          // Si está Emitida, Recepcionada, Ingresada al Kardex o Pagada, se muestra como PAGADO
+          const finalEstado = esAnulado ? 'ANULADO' : (esPendiente ? 'PENDIENTE' : 'PAGADO');
+
+          return {
+            id: c.id,
+            documento: c.codigo || c.numero || 'OC-0000',
+            entidad: c.proveedor_nombre || localItem?.proveedor || 'Proveedor General',
+            fecha: new Date(c.fecha_emision || c.fecha || c.created_at).toLocaleDateString('es-PE'),
+            importe: Number(c.total || localItem?.total) || 0,
+            estado: finalEstado,
+            categoria: 'COMPRAS',
+            extraInfo: c.proveedor_nombre || ''
+          };
+        });
+
+        // Agregar las órdenes que existan en local y aún no figuren en mappedRecords
+        localList.forEach((loc: any) => {
+          const locKey = loc.codigo || loc.id;
+          const exists = mappedRecords.some(r => r.documento === locKey || r.id === locKey);
+          if (!exists) {
+            const rawEstado = (loc.estado || '').toUpperCase();
+            const esAnulado = ['ANULADO', 'ANULADA', 'CANCELADA', 'CANCELADO'].includes(rawEstado);
+            const esPendiente = ['BORRADOR'].includes(rawEstado);
+            const finalEstado = esAnulado ? 'ANULADO' : (esPendiente ? 'PENDIENTE' : 'PAGADO');
+
+            mappedRecords.push({
+              id: loc.id || loc.codigo || String(Math.random()),
+              documento: loc.codigo || loc.id || 'OC-0000',
+              entidad: loc.proveedor || loc.proveedor_nombre || 'Proveedor General',
+              fecha: loc.fecha || new Date().toLocaleDateString('es-PE'),
+              importe: Number(loc.total) || 0,
+              estado: finalEstado,
+              categoria: 'COMPRAS',
+              extraInfo: loc.proveedor || ''
+            });
+          }
+        });
       } else if (selectedTemplate.id === 'productos-stock') {
         const { data, error } = await supabase.from('productos').select('*').order('descripcion');
         if (error) console.error('Error cargando stock de productos:', error);

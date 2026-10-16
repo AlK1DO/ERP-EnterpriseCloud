@@ -400,7 +400,7 @@ export const DashboardPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
         <div>
           <h1 className={`text-2xl font-bold tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-            Panel de Control Estratégico
+            Panel Ejecutivo de gestion
           </h1>
           <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             Resumen operativo de compras, ventas, cobranzas e inventario en tiempo real.
