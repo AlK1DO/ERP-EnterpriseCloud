@@ -150,30 +150,51 @@ export const StockProductosPage: React.FC = () => {
   };
 
   const exportCSV = () => {
-    const headers = ['Código', 'Descripción', 'Categoría', 'Almacén', 'Unidad', 'Costo Unit (S/)', 'Precio Venta (S/)', 'Stock Actual', 'Stock Mínimo', 'Valor Total (S/)'];
-    let csv = headers.join(';') + '\n';
-    filteredProductos.forEach(p => {
-      const row = [
-        p.codigo,
-        `"${p.descripcion}"`,
-        p.categoria,
-        p.almacen,
-        p.unidad,
+    const fechaGeneracion = new Date().toLocaleString('es-PE');
+    const lines: string[] = [
+      'ERP SENATINO - REPORTE DE INVENTARIO Y STOCK VALORIZADO',
+      `FECHA DE GENERACIÓN: ${fechaGeneracion}`,
+      `ALMACÉN: Almacén Central | MONEDA: SOLES (PEN - S/)`,
+      `TOTAL PRODUCTOS (SKU): ${totalItems} | UNIDADES FÍSICAS: ${totalUnidades}`,
+      `VALORIZACIÓN TOTAL DEL INVENTARIO: S/ ${valorizacionTotal.toFixed(2)}`,
+      '',
+      ['N°', 'Código SKU', 'Descripción del Producto', 'Categoría', 'Almacén', 'U.M.', 'Costo Unit. (S/)', 'Precio Venta (S/)', 'Stock Disponible', 'Stock Mínimo', 'Valor Total (S/)', 'Condición Stock'].join(';')
+    ];
+
+    filteredProductos.forEach((p, idx) => {
+      const sanitizedDesc = p.descripcion.replace(/"/g, '""');
+      const isBajo = p.stock <= p.stockMinimo && p.stock > 0;
+      const isAgotado = p.stock === 0;
+      const condicion = isAgotado ? 'AGOTADO' : (isBajo ? 'BAJO STOCK' : 'NORMAL');
+      const valorTotal = (p.stock * p.costoUnitario).toFixed(2);
+
+      lines.push([
+        String(idx + 1),
+        `"${p.codigo}"`,
+        `"${sanitizedDesc}"`,
+        `"${p.categoria}"`,
+        `"${p.almacen}"`,
+        `"${p.unidad}"`,
         p.costoUnitario.toFixed(2),
         p.precioVenta.toFixed(2),
-        p.stock,
-        p.stockMinimo,
-        (p.stock * p.costoUnitario).toFixed(2)
-      ];
-      csv += row.join(';') + '\n';
+        String(p.stock),
+        String(p.stockMinimo),
+        valorTotal,
+        `"${condicion}"`
+      ].join(';'));
     });
 
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+    lines.push('');
+    lines.push(['', '', 'TOTAL GENERAL', '', '', '', '', '', String(totalUnidades), '', valorizacionTotal.toFixed(2), ''].join(';'));
+
+    const csvContent = lines.join('\r\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `stock_productos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `Stock_Valorizado_ERP_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   const formatCurrency = (val: number | undefined | null) => {

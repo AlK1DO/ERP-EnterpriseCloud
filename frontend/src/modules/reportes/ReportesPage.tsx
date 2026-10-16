@@ -294,33 +294,46 @@ export const ReportesPage: React.FC = () => {
     setEstadoFilter('Todos');
   };
 
-  // Exportar Excel (CSV mejorado con UTF-8 BOM y formato adaptativo)
+  // Exportar Excel (CSV mejorado con UTF-8 BOM, separador estándar y formato corporativo)
   const handleExportExcel = () => {
     let entidadHeader = 'Cliente / Proveedor';
-    if (selectedTemplate.category === 'COMPRAS') entidadHeader = 'Proveedor';
+    if (selectedTemplate.category === 'COMPRAS') entidadHeader = 'Razón Social / Proveedor';
     else if (selectedTemplate.id === 'productos-stock') entidadHeader = 'Descripción del Producto';
     else if (selectedTemplate.category === 'INVENTARIO') entidadHeader = 'Insumo / Mercadería';
-    else if (selectedTemplate.category === 'VENTAS') entidadHeader = 'Cliente';
+    else if (selectedTemplate.category === 'VENTAS') entidadHeader = 'Cliente / Razón Social';
 
-    const headers = ['Nro Documento / Código', entidadHeader, 'Fecha', 'Importe S/.', 'Estado'];
-    let csvContent = headers.join(';') + '\r\n';
+    const fechaGeneracion = new Date().toLocaleString('es-PE');
+    
+    // Encabezado institucional estilo SUNAT / ERP Enterprise
+    const lines: string[] = [
+      'ERP SENATINO - SISTEMA DE GESTIÓN EMPRESARIAL CLOUD',
+      `REPORTE OFICIAL: ${selectedTemplate.name.toUpperCase()}`,
+      `PERÍODO: ${fechaDesde} al ${fechaHasta}`,
+      `FECHA DE EMISIÓN: ${fechaGeneracion}`,
+      `REGISTROS TOTALES: ${filteredRecords.length}`,
+      `MONEDA: SOLES (PEN - S/)`,
+      '',
+      ['N°', 'Documento / Correlativo', entidadHeader, 'Fecha Emisión', 'Importe Total (S/)', 'Estado Operativo'].join(';')
+    ];
 
-    filteredRecords.forEach(r => {
-      const sanitizedEntidad = r.entidad.replace(/"/g, '""');
-      const row = [
-        `"${r.documento}"`,
+    filteredRecords.forEach((r, idx) => {
+      const sanitizedDoc = (r.documento || '').replace(/"/g, '""');
+      const sanitizedEntidad = (r.entidad || '').replace(/"/g, '""');
+      lines.push([
+        String(idx + 1),
+        `"${sanitizedDoc}"`,
         `"${sanitizedEntidad}"`,
-        r.fecha,
+        `"${r.fecha}"`,
         r.importe.toFixed(2),
-        r.estado
-      ];
-      csvContent += row.join(';') + '\r\n';
+        `"${r.estado}"`
+      ].join(';'));
     });
 
-    if (filteredRecords.length > 0) {
-      csvContent += `\r\n;"TOTAL DEL PERÍODO";;${totalPeriodo.toFixed(2)};\r\n`;
-    }
+    // Fila resumen de totales
+    lines.push('');
+    lines.push(['', '', 'TOTAL GENERAL CONSOLIDADO', '', totalPeriodo.toFixed(2), ''].join(';'));
 
+    const csvContent = lines.join('\r\n');
     const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

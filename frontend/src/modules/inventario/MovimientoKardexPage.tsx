@@ -120,43 +120,56 @@ export const MovimientoKardexPage: React.FC = () => {
   };
 
   const exportCSV = () => {
-    const headers = [
-      'Fecha', 'Código', 'Producto', 'Operación', 'Doc. Tipo', 'Doc. Número', 'Detalle', 'Almacén',
-      'Entrada Cant', 'Entrada Costo', 'Entrada Total',
-      'Salida Cant', 'Salida Costo', 'Salida Total',
-      'Saldo Cant', 'Saldo Costo Promedio', 'Saldo Total'
+    const fechaGeneracion = new Date().toLocaleString('es-PE');
+    const lines: string[] = [
+      'ERP SENATINO - KARDEX FÍSICO Y VALORIZADO SUNAT',
+      `FECHA DE GENERACIÓN: ${fechaGeneracion}`,
+      `MÉTODO DE EVALUACIÓN: Costo Promedio Ponderado`,
+      `TOTAL MOVIMIENTOS: ${filteredMovs.length} REGISTROS`,
+      `ALMACÉN: Central | MONEDA: SOLES (PEN - S/)`,
+      '',
+      [
+        'N°', 'Fecha', 'Código SKU', 'Descripción del Producto', 'Tipo Operación',
+        'Comprobante Tipo', 'Comprobante Nro', 'Detalle / Concepto', 'Almacén',
+        'Entrada Cant', 'Entrada Costo (S/)', 'Entrada Total (S/)',
+        'Salida Cant', 'Salida Costo (S/)', 'Salida Total (S/)',
+        'Saldo Cant', 'Saldo Costo Promedio (S/)', 'Saldo Total (S/)'
+      ].join(';')
     ];
-    let csv = headers.join(';') + '\n';
 
-    filteredMovs.forEach(m => {
-      const row = [
-        new Date(m.fecha).toLocaleDateString('es-PE'),
-        m.productoCodigo,
-        `"${m.productoDescripcion}"`,
-        m.tipoOperacion,
-        m.documentoTipo,
-        m.documentoNumero,
-        `"${m.detalle}"`,
-        m.almacen,
-        m.cantEntrada || '',
-        m.costoEntrada ? m.costoEntrada.toFixed(2) : '',
-        m.totalEntrada ? m.totalEntrada.toFixed(2) : '',
-        m.cantSalida || '',
-        m.costoSalida ? m.costoSalida.toFixed(2) : '',
-        m.totalSalida ? m.totalSalida.toFixed(2) : '',
-        m.saldoCantidad,
+    filteredMovs.forEach((m, idx) => {
+      const sanitizedDesc = (m.productoDescripcion || '').replace(/"/g, '""');
+      const sanitizedDetalle = (m.detalle || '').replace(/"/g, '""');
+      lines.push([
+        String(idx + 1),
+        `"${new Date(m.fecha).toLocaleDateString('es-PE')}"`,
+        `"${m.productoCodigo || ''}"`,
+        `"${sanitizedDesc}"`,
+        `"${m.tipoOperacion}"`,
+        `"${m.documentoTipo || ''}"`,
+        `"${m.documentoNumero || ''}"`,
+        `"${sanitizedDetalle}"`,
+        `"${m.almacen || 'Central'}"`,
+        m.cantEntrada ? String(m.cantEntrada) : '0',
+        m.costoEntrada ? m.costoEntrada.toFixed(2) : '0.00',
+        m.totalEntrada ? m.totalEntrada.toFixed(2) : '0.00',
+        m.cantSalida ? String(m.cantSalida) : '0',
+        m.costoSalida ? m.costoSalida.toFixed(2) : '0.00',
+        m.totalSalida ? m.totalSalida.toFixed(2) : '0.00',
+        String(m.saldoCantidad),
         m.saldoCostoUnitario.toFixed(2),
         m.saldoTotal.toFixed(2)
-      ];
-      csv += row.join(';') + '\n';
+      ].join(';'));
     });
 
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = lines.join('\r\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `kardex_movimientos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `Kardex_Valorizado_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
