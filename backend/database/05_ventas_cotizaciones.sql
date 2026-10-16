@@ -1,12 +1,7 @@
--- ====================================================================
--- 05. TABLAS DE COTIZACIONES, VENTAS, ÓRDENES DE COMPRA Y DETALLES
--- ERP EnterpriseCloud - PostgreSQL / Supabase
--- ====================================================================
-
--- 5.1 TABLA: Cotizaciones
+-- Cotizaciones
 CREATE TABLE IF NOT EXISTS public.cotizaciones (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  numero VARCHAR(40) UNIQUE NOT NULL, -- COT-0001
+  numero VARCHAR(40) UNIQUE NOT NULL,
   cliente_id UUID REFERENCES public.clientes(id) ON DELETE SET NULL,
   cliente_nombre VARCHAR(255) NOT NULL,
   cliente_documento VARCHAR(20),
@@ -22,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.cotizaciones (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5.2 TABLA: Detalle de Cotizaciones
+-- Detalle de cotizaciones
 CREATE TABLE IF NOT EXISTS public.cotizaciones_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cotizacion_id UUID NOT NULL REFERENCES public.cotizaciones(id) ON DELETE CASCADE,
@@ -34,10 +29,10 @@ CREATE TABLE IF NOT EXISTS public.cotizaciones_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5.3 TABLA: Ventas / Facturación
+-- Ventas
 CREATE TABLE IF NOT EXISTS public.ventas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  numero VARCHAR(40) UNIQUE NOT NULL, -- VEN-0001, F001-0001
+  numero VARCHAR(40) UNIQUE NOT NULL,
   tipo_comprobante VARCHAR(30) DEFAULT 'Factura' CHECK (tipo_comprobante IN ('Factura', 'Boleta', 'Nota Venta')),
   cliente_id UUID REFERENCES public.clientes(id) ON DELETE SET NULL,
   cliente_nombre VARCHAR(255) NOT NULL,
@@ -54,7 +49,7 @@ CREATE TABLE IF NOT EXISTS public.ventas (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5.4 TABLA: Detalle de Ventas
+-- Detalle de ventas
 CREATE TABLE IF NOT EXISTS public.ventas_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   venta_id UUID NOT NULL REFERENCES public.ventas(id) ON DELETE CASCADE,
@@ -66,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.ventas_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5.5 TABLA: Órdenes de Compra a Proveedores
+-- Ordenes de compra
 CREATE TABLE IF NOT EXISTS public.ordenes_compra (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(60) UNIQUE NOT NULL,
@@ -90,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.ordenes_compra (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Sincronizar campos de compras
 CREATE OR REPLACE FUNCTION public.sync_ordenes_compra_fields()
 RETURNS trigger AS $$
 BEGIN
@@ -126,7 +122,7 @@ CREATE TRIGGER trg_sync_ordenes_compra
   BEFORE INSERT OR UPDATE ON public.ordenes_compra
   FOR EACH ROW EXECUTE FUNCTION public.sync_ordenes_compra_fields();
 
--- 5.6 TABLA: Detalle de Órdenes de Compra
+-- Detalle de ordenes de compra
 CREATE TABLE IF NOT EXISTS public.ordenes_compra_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   orden_id UUID NOT NULL REFERENCES public.ordenes_compra(id) ON DELETE CASCADE,
@@ -159,7 +155,7 @@ CREATE TRIGGER trg_sync_ordenes_compra_items
   BEFORE INSERT OR UPDATE ON public.ordenes_compra_items
   FOR EACH ROW EXECUTE FUNCTION public.sync_ordenes_compra_items_fields();
 
--- Índices de búsqueda
+-- Indices
 CREATE INDEX IF NOT EXISTS idx_ventas_numero ON public.ventas(numero);
 CREATE INDEX IF NOT EXISTS idx_ventas_cliente_id ON public.ventas(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_numero ON public.cotizaciones(numero);

@@ -1,66 +1,85 @@
-# 🏛️ ERP EnterpriseCloud - Backend & Base de Datos (Supabase PostgreSQL)
+# Backend y Base de Datos - ERP EnterpriseCloud
 
-Este directorio contiene toda la arquitectura de backend, esquemas DDL de PostgreSQL, triggers de automatización, políticas de seguridad (RLS) y catálogos de datos para el sistema **ERP EnterpriseCloud**.
+API REST desarrollada con Node.js, Express y TypeScript, conectada a Supabase (PostgreSQL). Incluye endpoints de salud, integración con el API de Migo para consulta de RUC y DNI, y los scripts SQL para la creación de tablas, triggers y políticas RLS.
 
 ---
 
-## 📁 Estructura del Directorio Backend
+## Estructura del Backend
 
 ```
 backend/
-├── .env.example                       # Variables de entorno de conexión
-├── package.json                       # Configuración y dependencias Node/TypeScript
-├── README.md                          # Documentación completa de la BD y arquitectura
 ├── src/
 │   ├── config/
-│   │   └── supabaseClient.ts          # Conexión TypeScript a Supabase PostgreSQL
-│   └── index.ts                       # Servidor API / microservicio Express
-└── database/                          # Scripts SQL modulares y script maestro
-    ├── 00_master_schema.sql           # 🔥 SCRIPT COMPLETO UNIFICADO (1 solo clic en Supabase)
-    ├── 01_auth_and_profiles.sql       # Trigger auto-confirmación y tabla public.perfiles
-    ├── 02_catalogs_schema.sql         # Almacenes, Líneas/Categorías, Marcas, Unidades SUNAT
-    ├── 03_clientes_proveedores.sql    # Clientes (DNI/RUC) y Proveedores con campos MIGO (SUNAT/RENIEC)
-    ├── 04_productos_inventario.sql    # Productos, Stock y Kardex Valorizado con triggers
-    ├── 05_ventas_cotizaciones.sql     # Cotizaciones, Ventas, Facturación y Órdenes de Compra
-    ├── 06_rls_security.sql            # Políticas de Seguridad Row Level Security (RLS)
-    └── 07_seed_data.sql               # Datos iniciales realistas para empresas de Perú
+│   │   ├── env.ts                  # Variables de entorno y configuracion general
+│   │   ├── supabase.ts             # Cliente y conexion con Supabase
+│   │   └── supabaseClient.ts       # Re-export de compatibilidad
+│   ├── controllers/
+│   │   ├── consultaController.ts   # Consulta de DNI y RUC (Migo API)
+│   │   └── healthController.ts     # Health check y estado de conexion
+│   ├── middlewares/
+│   │   └── errorHandler.ts         # Manejo centralizado de errores
+│   ├── routes/
+│   │   ├── consultaRoutes.ts       # Rutas /api/consulta-documento
+│   │   ├── healthRoutes.ts         # Rutas /api/health
+│   │   └── index.ts                # Router principal
+│   ├── app.ts                      # Configuracion de Express y middlewares
+│   └── index.ts                    # Inicio del servidor
+├── database/
+│   ├── 00_master_schema.sql        # Script principal con todas las tablas y permisos
+│   ├── 01_auth_and_profiles.sql    # Trigger de auth y perfiles
+│   ├── 02_catalogs_schema.sql      # Almacenes, categorias, marcas, unidades
+│   ├── 03_clientes_proveedores.sql # Clientes y proveedores
+│   ├── 04_productos_inventario.sql # Productos y kardex
+│   ├── 05_ventas_cotizaciones.sql  # Cotizaciones, ventas y compras
+│   ├── 06_rls_security.sql         # Politicas RLS y permisos
+│   ├── 07_seed_data.sql            # Datos iniciales basicos
+│   ├── 08_tech_products_seed.sql   # Catalogo de productos de prueba
+│   └── reset_datos.sql             # Limpiar transacciones para reiniciar pruebas
+├── .env.example
+├── package.json
+├── tsconfig.json
+└── README.md
 ```
 
 ---
 
-## 🚀 Cómo Desplegar la Base de Datos en Supabase (En 1 Minuto)
+## Instalacion y ejecucion
 
-1. Ingresa a tu proyecto en [Supabase Dashboard](https://supabase.com/dashboard).
-2. En el menú lateral izquierdo, haz clic en **SQL Editor** (icono `>_`).
-3. Dale clic al botón verde **`+ New query`**.
-4. Abre el archivo **[`database/00_master_schema.sql`](./database/00_master_schema.sql)**, copia todo su contenido y pégalo en el editor de Supabase.
-5. Haz clic en el botón verde **`Run`** (o presiona `Ctrl + Enter`).
-6. ¡Listo! Todas las tablas, triggers, relaciones e información semilla de Perú quedarán creadas automáticamente.
+1. Instalar dependencias:
+```bash
+npm install
+```
+
+2. Configurar variables de entorno:
+Crear un archivo `.env` basado en `.env.example`:
+```env
+PORT=4000
+SUPABASE_URL=tu_supabase_url
+SUPABASE_ANON_KEY=tu_supabase_anon_key
+MIGO_TOKEN=tu_token_migo
+```
+
+3. Iniciar en desarrollo:
+```bash
+npm run dev
+```
 
 ---
 
-## 🗄️ Esquema de Tablas Implementado
+## Endpoints de la API
 
-| Tabla | Descripción | Enlaces / Dependencias |
+| Metodo | Ruta | Descripcion |
 |---|---|---|
-| `public.perfiles` | Usuarios del sistema y roles (Admin, Vendedor, Almacenero, Contador) | `auth.users` |
-| `public.almacenes` | Locales y almacenes físicos (Central, Lurín, Arequipa) | Catálogo maestro |
-| `public.lineas_categorias` | Familias y categorías de productos | Catálogo maestro |
-| `public.marcas` | Marcas registradas de insumos y mercadería | Catálogo maestro |
-| `public.unidades_medida` | Unidades estándar SUNAT (NIU, KGM, ROL, BLS) | Catálogo maestro |
-| `public.clientes` | Clientes (soporta DNI RENIEC y RUC SUNAT con Migo API) | Independiente |
-| `public.clientes_historial` | Trazabilidad y auditoría de eventos de clientes | `clientes(id)` |
-| `public.proveedores` | Proveedores y socios comerciales con RUC SUNAT | Independiente |
-| `public.proveedores_historial` | Trazabilidad y condiciones comerciales con proveedores | `proveedores(id)` |
-| `public.productos` | Inventario valorizado, precios de costo y venta, alertas de stock | `almacenes`, `categorias` |
-| `public.kardex_movimientos` | Registro de entradas, salidas y saldos con trigger de stock | `productos(id)` |
-| `public.cotizaciones` | Cotizaciones comerciales para clientes | `clientes(id)` |
-| `public.ventas` | Comprobantes de pago (Factura, Boleta, Nota de Venta) con IGV 18% | `clientes(id)` |
-| `public.ordenes_compra` | Adquisiciones y compras formales a proveedores | `proveedores(id)` |
+| `GET` | `/api/health` | Estado del servidor y verificacion de conexion con Supabase |
+| `GET` | `/api/consulta-documento/dni/:num` | Consulta datos de persona natural en RENIEC |
+| `GET` | `/api/consulta-documento/ruc/:num` | Consulta datos de empresa o persona en SUNAT |
 
 ---
 
-## 🛡️ Seguridad y Triggers Automáticos
-* **Auto-confirmación (`auto_confirm_new_users`):** Elimina la dependencia de envíos de correos en entornos de desarrollo; valida de inmediato a cualquier usuario registrado.
-* **Auto-stock Kardex (`actualizar_stock_producto_kardex`):** Al registrar una entrada o salida en el Kardex, el stock físico del producto se recalcula automáticamente en PostgreSQL.
-* **Row Level Security (RLS):** Toda la base de datos está protegida por políticas que permiten operaciones de lectura y escritura controladas por token de autenticación.
+## Base de Datos (Supabase)
+
+Para desplegar la base de datos en Supabase:
+1. Ir al panel de Supabase > **SQL Editor**.
+2. Abrir el archivo `database/00_master_schema.sql`.
+3. Pegar el contenido y presionar **Run**.
+4. Si se requiere limpiar ventas o compras para reiniciar pruebas sin borrar productos ni catalogos, ejecutar `database/reset_datos.sql`.

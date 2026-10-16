@@ -1,10 +1,6 @@
--- ====================================================================
--- ERP ENTERPRISECLOUD - MASTER DATABASE SCHEMA (DEFINITIVO)
--- PostgreSQL / Supabase
--- Script unificado para instalación completa en 1 solo clic en SQL Editor
--- ====================================================================
+-- Base de datos para ERP EnterpriseCloud (PostgreSQL / Supabase)
 
--- 0. LIMPIEZA PREVIA (Previene conflictos de columnas, llaves o tipos)
+-- Limpiar tablas si existen
 DROP TABLE IF EXISTS public.ventas_items CASCADE;
 DROP TABLE IF EXISTS public.ventas CASCADE;
 DROP TABLE IF EXISTS public.cotizaciones_items CASCADE;
@@ -23,9 +19,7 @@ DROP TABLE IF EXISTS public.lineas_categorias CASCADE;
 DROP TABLE IF EXISTS public.almacenes CASCADE;
 DROP TABLE IF EXISTS public.perfiles CASCADE;
 
--- ====================================================================
--- 1. AUTENTICACIÓN Y PERFILES DE USUARIO
--- ====================================================================
+-- Confirmar usuarios automaticamente al registrarse
 CREATE OR REPLACE FUNCTION public.auto_confirm_new_users()
 RETURNS trigger AS $$
 BEGIN
@@ -39,6 +33,7 @@ CREATE TRIGGER on_auth_user_created_auto_confirm
   BEFORE INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.auto_confirm_new_users();
 
+-- Tabla de perfiles
 CREATE TABLE IF NOT EXISTS public.perfiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   nombre_completo VARCHAR(255),
@@ -52,6 +47,7 @@ CREATE TABLE IF NOT EXISTS public.perfiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Sincronizar perfiles
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
 RETURNS trigger AS $$
 BEGIN
@@ -77,9 +73,7 @@ CREATE TRIGGER on_auth_user_created_profile
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user_profile();
 
--- ====================================================================
--- 2. CATÁLOGOS BASE
--- ====================================================================
+-- Almacenes
 CREATE TABLE IF NOT EXISTS public.almacenes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(30) UNIQUE NOT NULL,
@@ -92,6 +86,7 @@ CREATE TABLE IF NOT EXISTS public.almacenes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Categorias de productos
 CREATE TABLE IF NOT EXISTS public.lineas_categorias (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(30) UNIQUE,
@@ -101,6 +96,7 @@ CREATE TABLE IF NOT EXISTS public.lineas_categorias (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Marcas
 CREATE TABLE IF NOT EXISTS public.marcas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre VARCHAR(120) UNIQUE NOT NULL,
@@ -109,6 +105,7 @@ CREATE TABLE IF NOT EXISTS public.marcas (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Unidades de medida
 CREATE TABLE IF NOT EXISTS public.unidades_medida (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(10) UNIQUE NOT NULL,
@@ -117,9 +114,7 @@ CREATE TABLE IF NOT EXISTS public.unidades_medida (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ====================================================================
--- 3. CLIENTES Y PROVEEDORES
--- ====================================================================
+-- Clientes
 CREATE TABLE IF NOT EXISTS public.clientes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo_persona VARCHAR(10) NOT NULL CHECK (tipo_persona IN ('NATURAL', 'JURIDICA')),
@@ -144,6 +139,7 @@ CREATE TABLE IF NOT EXISTS public.clientes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Historial de clientes
 CREATE TABLE IF NOT EXISTS public.clientes_historial (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id UUID NOT NULL REFERENCES public.clientes(id) ON DELETE CASCADE,
@@ -154,6 +150,7 @@ CREATE TABLE IF NOT EXISTS public.clientes_historial (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Proveedores
 CREATE TABLE IF NOT EXISTS public.proveedores (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo_persona VARCHAR(10) NOT NULL CHECK (tipo_persona IN ('NATURAL', 'JURIDICA')),
@@ -178,6 +175,7 @@ CREATE TABLE IF NOT EXISTS public.proveedores (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Historial de proveedores
 CREATE TABLE IF NOT EXISTS public.proveedores_historial (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   proveedor_id UUID NOT NULL REFERENCES public.proveedores(id) ON DELETE CASCADE,
@@ -188,14 +186,13 @@ CREATE TABLE IF NOT EXISTS public.proveedores_historial (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Indices para clientes y proveedores
 CREATE INDEX IF NOT EXISTS idx_clientes_documento ON public.clientes(documento);
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON public.clientes(nombre);
 CREATE INDEX IF NOT EXISTS idx_proveedores_documento ON public.proveedores(documento);
 CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON public.proveedores(nombre);
 
--- ====================================================================
--- 4. PRODUCTOS Y KARDEX VALORIZADO
--- ====================================================================
+-- Productos
 CREATE TABLE IF NOT EXISTS public.productos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(60) UNIQUE NOT NULL,
@@ -213,6 +210,7 @@ CREATE TABLE IF NOT EXISTS public.productos (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Movimientos de kardex
 CREATE TABLE IF NOT EXISTS public.kardex_movimientos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fecha TIMESTAMPTZ DEFAULT NOW(),
@@ -238,6 +236,7 @@ CREATE TABLE IF NOT EXISTS public.kardex_movimientos (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Actualizar stock desde kardex
 CREATE OR REPLACE FUNCTION public.actualizar_stock_producto_kardex()
 RETURNS trigger AS $$
 BEGIN
@@ -264,14 +263,13 @@ CREATE TRIGGER on_kardex_inserted_update_stock
   AFTER INSERT ON public.kardex_movimientos
   FOR EACH ROW EXECUTE FUNCTION public.actualizar_stock_producto_kardex();
 
+-- Indices de productos y kardex
 CREATE INDEX IF NOT EXISTS idx_productos_codigo ON public.productos(codigo);
 CREATE INDEX IF NOT EXISTS idx_productos_linea ON public.productos(linea);
 CREATE INDEX IF NOT EXISTS idx_kardex_producto_id ON public.kardex_movimientos(producto_id);
 CREATE INDEX IF NOT EXISTS idx_kardex_fecha ON public.kardex_movimientos(fecha);
 
--- ====================================================================
--- 5. COTIZACIONES, VENTAS Y ÓRDENES DE COMPRA
--- ====================================================================
+-- Cotizaciones
 CREATE TABLE IF NOT EXISTS public.cotizaciones (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   numero VARCHAR(40) UNIQUE NOT NULL,
@@ -284,12 +282,13 @@ CREATE TABLE IF NOT EXISTS public.cotizaciones (
   subtotal NUMERIC(14, 2) DEFAULT 0.00,
   igv NUMERIC(14, 2) DEFAULT 0.00,
   total NUMERIC(14, 2) DEFAULT 0.00,
-  estado VARCHAR(30) DEFAULT 'Borrador',
+  estado VARCHAR(30) DEFAULT 'Pendiente' CHECK (estado IN ('Pendiente', 'Aprobada', 'Rechazada', 'Facturada')),
   notas TEXT,
   usuario_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Detalle de cotizaciones
 CREATE TABLE IF NOT EXISTS public.cotizaciones_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cotizacion_id UUID NOT NULL REFERENCES public.cotizaciones(id) ON DELETE CASCADE,
@@ -301,6 +300,7 @@ CREATE TABLE IF NOT EXISTS public.cotizaciones_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ventas
 CREATE TABLE IF NOT EXISTS public.ventas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   numero VARCHAR(40) UNIQUE NOT NULL,
@@ -320,6 +320,7 @@ CREATE TABLE IF NOT EXISTS public.ventas (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Detalle de ventas
 CREATE TABLE IF NOT EXISTS public.ventas_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   venta_id UUID NOT NULL REFERENCES public.ventas(id) ON DELETE CASCADE,
@@ -331,7 +332,7 @@ CREATE TABLE IF NOT EXISTS public.ventas_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Tabla Órdenes de Compra (compatible tanto con 'codigo' como con 'numero')
+-- Ordenes de compra
 CREATE TABLE IF NOT EXISTS public.ordenes_compra (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(60) UNIQUE NOT NULL,
@@ -355,7 +356,7 @@ CREATE TABLE IF NOT EXISTS public.ordenes_compra (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Trigger de sincronización de campos alternativos en ordenes_compra
+-- Sincronizar campos de compras
 CREATE OR REPLACE FUNCTION public.sync_ordenes_compra_fields()
 RETURNS trigger AS $$
 BEGIN
@@ -392,7 +393,7 @@ CREATE TRIGGER trg_sync_ordenes_compra
   BEFORE INSERT OR UPDATE ON public.ordenes_compra
   FOR EACH ROW EXECUTE FUNCTION public.sync_ordenes_compra_fields();
 
--- Detalle de Órdenes de Compra (relación unívoca orden_id para PostgREST)
+-- Detalle de ordenes de compra
 CREATE TABLE IF NOT EXISTS public.ordenes_compra_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   orden_id UUID NOT NULL REFERENCES public.ordenes_compra(id) ON DELETE CASCADE,
@@ -407,7 +408,6 @@ CREATE TABLE IF NOT EXISTS public.ordenes_compra_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Trigger de sincronización de campos descriptivos en ordenes_compra_items
 CREATE OR REPLACE FUNCTION public.sync_ordenes_compra_items_fields()
 RETURNS trigger AS $$
 BEGIN
@@ -426,6 +426,7 @@ CREATE TRIGGER trg_sync_ordenes_compra_items
   BEFORE INSERT OR UPDATE ON public.ordenes_compra_items
   FOR EACH ROW EXECUTE FUNCTION public.sync_ordenes_compra_items_fields();
 
+-- Indices de ventas, cotizaciones y compras
 CREATE INDEX IF NOT EXISTS idx_ventas_numero ON public.ventas(numero);
 CREATE INDEX IF NOT EXISTS idx_ventas_cliente_id ON public.ventas(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_numero ON public.cotizaciones(numero);
@@ -433,11 +434,7 @@ CREATE INDEX IF NOT EXISTS idx_ordenes_compra_codigo ON public.ordenes_compra(co
 CREATE INDEX IF NOT EXISTS idx_ordenes_compra_numero ON public.ordenes_compra(numero);
 CREATE INDEX IF NOT EXISTS idx_oc_items_orden_id ON public.ordenes_compra_items(orden_id);
 
--- ====================================================================
--- 6. POLÍTICAS RLS Y PERMISOS TOTALES
--- Permite lectura y escritura tanto para usuarios anon (modo frontend directo)
--- como usuarios authenticated (logueados con email/password), evitando errores 401/403.
--- ====================================================================
+-- Seguridad y politicas RLS
 ALTER TABLE public.perfiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.almacenes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lineas_categorias ENABLE ROW LEVEL SECURITY;
@@ -477,15 +474,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- Permisos PostgreSQL a nivel de esquema para evitar bloqueos
+-- Permisos
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
--- ====================================================================
--- 7. CATÁLOGOS BASE (ALMACENES Y UNIDADES SUNAT)
--- ====================================================================
+-- Datos iniciales: almacenes y unidades
 INSERT INTO public.almacenes (codigo, nombre, direccion, responsable, telefono)
 VALUES
   ('ALM-01', 'Almacén Central', 'Sede Principal', 'Administrador', NULL)
@@ -500,9 +495,7 @@ VALUES
   ('BLS', 'Bolsa', 'BLS')
 ON CONFLICT (codigo) DO NOTHING;
 
--- ====================================================================
--- 8. PRODUCTOS TECNOLÓGICOS INICIALES (DEMO INMEDIATA)
--- ====================================================================
+-- Categorias, marcas y productos de prueba
 INSERT INTO public.lineas_categorias (codigo, nombre, descripcion)
 VALUES
   ('CAT-TEC-01', 'Monitores', 'Pantallas gamer y profesionales'),

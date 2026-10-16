@@ -1,27 +1,22 @@
--- ====================================================================
--- 03. TABLAS DE CLIENTES Y PROVEEDORES (INTEGRACIÓN MIGO SUNAT / RENIEC)
--- ERP EnterpriseCloud - PostgreSQL / Supabase
--- ====================================================================
-
--- 3.1 TABLA: Clientes (Soporta Personas Naturales con DNI y Empresas con RUC)
+-- Clientes
 CREATE TABLE IF NOT EXISTS public.clientes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo_persona VARCHAR(10) NOT NULL CHECK (tipo_persona IN ('NATURAL', 'JURIDICA')),
   tipo_documento VARCHAR(10) NOT NULL DEFAULT 'DNI' CHECK (tipo_documento IN ('DNI', 'RUC', 'CE', 'PASAPORTE')),
   documento VARCHAR(20) NOT NULL UNIQUE,
-  nombre VARCHAR(255) NOT NULL, -- Nombre completo (RENIEC) o Razón Social (SUNAT)
+  nombre VARCHAR(255) NOT NULL,
   nombre_comercial VARCHAR(255),
   
-  -- Campos enriquecidos por Migo API (SUNAT)
-  estado_sunat VARCHAR(50),      -- 'ACTIVO', 'BAJA', etc.
-  condicion_sunat VARCHAR(50),   -- 'HABIDO', 'NO HABIDO'
+  -- Datos SUNAT / RENIEC
+  estado_sunat VARCHAR(50),
+  condicion_sunat VARCHAR(50),
   ubigeo VARCHAR(20),
   departamento VARCHAR(80),
   provincia VARCHAR(80),
   distrito VARCHAR(80),
   direccion TEXT,
   
-  -- Contacto y finanzas
+  -- Contacto
   email VARCHAR(180),
   telefono VARCHAR(50),
   limite_credito NUMERIC(14, 2) DEFAULT 0.00,
@@ -33,7 +28,7 @@ CREATE TABLE IF NOT EXISTS public.clientes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3.2 TABLA: Historial de Operaciones de Clientes
+-- Historial de clientes
 CREATE TABLE IF NOT EXISTS public.clientes_historial (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id UUID NOT NULL REFERENCES public.clientes(id) ON DELETE CASCADE,
@@ -44,28 +39,28 @@ CREATE TABLE IF NOT EXISTS public.clientes_historial (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3.3 TABLA: Proveedores (Soporta Empresas con RUC y Personas con DNI/RUC 10)
+-- Proveedores
 CREATE TABLE IF NOT EXISTS public.proveedores (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo_persona VARCHAR(10) NOT NULL CHECK (tipo_persona IN ('NATURAL', 'JURIDICA')),
   tipo_documento VARCHAR(10) NOT NULL DEFAULT 'RUC' CHECK (tipo_documento IN ('DNI', 'RUC', 'CE')),
   documento VARCHAR(20) NOT NULL UNIQUE,
-  nombre VARCHAR(255) NOT NULL, -- Razón Social (SUNAT) o Nombre Completo
+  nombre VARCHAR(255) NOT NULL,
   nombre_comercial VARCHAR(255),
   
-  -- Campos enriquecidos por Migo API (SUNAT)
-  estado_sunat VARCHAR(50),      -- 'ACTIVO', 'BAJA'
-  condicion_sunat VARCHAR(50),   -- 'HABIDO', 'NO HABIDO'
+  -- Datos SUNAT
+  estado_sunat VARCHAR(50),
+  condicion_sunat VARCHAR(50),
   ubigeo VARCHAR(20),
   departamento VARCHAR(80),
   provincia VARCHAR(80),
   distrito VARCHAR(80),
   direccion TEXT,
   
-  -- Contacto y condiciones comerciales
+  -- Contacto
   email VARCHAR(180),
   telefono VARCHAR(50),
-  condicion_pago INT DEFAULT 30, -- Días de crédito: 0 (Contado), 15, 30, 60, 90 días
+  condicion_pago INT DEFAULT 30,
   estado VARCHAR(20) DEFAULT 'Activo' CHECK (estado IN ('Activo', 'Inactivo', 'Suspendido')),
   dias_inactivo INT DEFAULT 0,
   
@@ -74,7 +69,7 @@ CREATE TABLE IF NOT EXISTS public.proveedores (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3.4 TABLA: Historial de Operaciones de Proveedores
+-- Historial de proveedores
 CREATE TABLE IF NOT EXISTS public.proveedores_historial (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   proveedor_id UUID NOT NULL REFERENCES public.proveedores(id) ON DELETE CASCADE,
@@ -85,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.proveedores_historial (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Índices de búsqueda rápida por DNI / RUC y Nombre
+-- Indices
 CREATE INDEX IF NOT EXISTS idx_clientes_documento ON public.clientes(documento);
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON public.clientes(nombre);
 CREATE INDEX IF NOT EXISTS idx_proveedores_documento ON public.proveedores(documento);

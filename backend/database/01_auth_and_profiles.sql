@@ -1,10 +1,4 @@
--- ====================================================================
--- 01. AUTENTICACIÓN, TRIGGER AUTO-CONFIRM Y PERFILES DE USUARIO
--- ERP EnterpriseCloud - PostgreSQL / Supabase
--- ====================================================================
-
--- 1.1 FUNCIÓN Y TRIGGER: Auto-confirmar usuarios al registrarse
--- (Permite el ingreso directo a cualquier usuario sin esperar verificación de correo)
+-- Confirmar email de usuarios directamente al crearse
 CREATE OR REPLACE FUNCTION public.auto_confirm_new_users()
 RETURNS trigger AS $$
 BEGIN
@@ -19,7 +13,7 @@ CREATE TRIGGER on_auth_user_created_auto_confirm
   BEFORE INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.auto_confirm_new_users();
 
--- 1.2 TABLA: Perfiles de Usuario (Enlazada a auth.users de Supabase)
+-- Tabla de perfiles vinculada a auth.users
 CREATE TABLE IF NOT EXISTS public.perfiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   nombre_completo VARCHAR(255),
@@ -33,7 +27,7 @@ CREATE TABLE IF NOT EXISTS public.perfiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 1.3 TRIGGER: Sincronizar automáticamente nuevos registros de auth.users a public.perfiles
+-- Sincronizar usuario con la tabla perfiles
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
 RETURNS trigger AS $$
 BEGIN

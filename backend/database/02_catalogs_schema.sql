@@ -1,9 +1,4 @@
--- ====================================================================
--- 02. TABLAS DE CATÁLOGOS BASE Y MANTENIMIENTOS
--- ERP EnterpriseCloud - PostgreSQL / Supabase
--- ====================================================================
-
--- 2.1 TABLA: Almacenes
+-- Almacenes
 CREATE TABLE IF NOT EXISTS public.almacenes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(30) UNIQUE NOT NULL,
@@ -16,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.almacenes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2.2 TABLA: Líneas / Categorías de Productos
+-- Categorias de productos
 CREATE TABLE IF NOT EXISTS public.lineas_categorias (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(30) UNIQUE,
@@ -26,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.lineas_categorias (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2.3 TABLA: Marcas
+-- Marcas
 CREATE TABLE IF NOT EXISTS public.marcas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre VARCHAR(120) UNIQUE NOT NULL,
@@ -35,7 +30,7 @@ CREATE TABLE IF NOT EXISTS public.marcas (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2.4 TABLA: Unidades de Medida (Estándar SUNAT: NIU, KGM, MTR, etc.)
+-- Unidades de medida
 CREATE TABLE IF NOT EXISTS public.unidades_medida (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   codigo VARCHAR(10) UNIQUE NOT NULL,

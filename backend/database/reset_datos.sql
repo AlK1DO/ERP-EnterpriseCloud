@@ -1,29 +1,23 @@
--- ====================================================================
--- ERP ENTERPRISECLOUD - LIMPIEZA DE DATOS TRANSACCIONALES
--- Deja intactos: PRODUCTOS, ALMACENES, CATEGORÍAS Y MARCAS
--- Borra: Ventas, Compras, Cotizaciones, Kardex, Clientes y Proveedores
--- ====================================================================
+-- Limpiar tablas transaccionales para reiniciar pruebas
+-- Mantiene intactos: productos, almacenes, categorias y marcas
 
--- 1. Vaciar Ventas y Facturación
+-- Ventas y facturacion
 TRUNCATE TABLE public.ventas_items CASCADE;
 TRUNCATE TABLE public.ventas CASCADE;
 
--- 2. Vaciar Cotizaciones
+-- Cotizaciones
 TRUNCATE TABLE public.cotizaciones_items CASCADE;
 TRUNCATE TABLE public.cotizaciones CASCADE;
 
--- 3. Vaciar Órdenes de Compra
+-- Compras
 TRUNCATE TABLE public.ordenes_compra_items CASCADE;
 TRUNCATE TABLE public.ordenes_compra CASCADE;
 
--- 4. Vaciar Movimientos de Kardex
+-- Kardex
 TRUNCATE TABLE public.kardex_movimientos CASCADE;
 
--- 5. Vaciar Clientes y Proveedores (para registrarlos desde cero con SUNAT/RENIEC)
+-- Clientes y proveedores
 TRUNCATE TABLE public.clientes_historial CASCADE;
 TRUNCATE TABLE public.clientes CASCADE;
 TRUNCATE TABLE public.proveedores_historial CASCADE;
 TRUNCATE TABLE public.proveedores CASCADE;
-
--- NOTA: Las tablas 'productos', 'almacenes', 'lineas_categorias',
--- 'marcas' y 'unidades_medida' NO se tocan y se mantienen 100% intactas.
