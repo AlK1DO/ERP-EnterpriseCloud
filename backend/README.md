@@ -58,6 +58,8 @@ SUPABASE_URL=tu_supabase_url
 SUPABASE_ANON_KEY=tu_supabase_anon_key
 MIGO_TOKEN=tu_token_migo
 ```
+El backend también acepta `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y
+`VITE_MIGO_TOKEN` si esos son los nombres que ya tienes configurados.
 
 3. Iniciar en desarrollo:
 ```bash

@@ -9,6 +9,7 @@ import { proveedoresService, type Proveedor } from '../../services/proveedoresSe
 import { comprasService, type OrdenCompra } from '../../services/comprasService';
 import { QuickPartyCreateModal } from '../../components/QuickPartyCreateModal';
 import { OrderDetailsModal, type OrderDetails } from '../../components/OrderDetailsModal';
+import { recordDashboardMovement } from '../../lib/dashboardMovements';
 
 interface ProductLine {
   id: string;
@@ -201,14 +202,19 @@ export const OrdenCompraPage: React.FC = () => {
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const handleSaveOrder = async () => {
+    if (!selectedProveedor) {
+      showToast('Selecciona un proveedor antes de grabar la orden de compra.');
+      return;
+    }
+
     if (products.length === 0) {
       showToast("No puedes grabar una orden vacía. Agrega al menos un producto.");
       return;
     }
 
     const ocId = `OC-${new Date().getFullYear()}-${Math.floor(Math.random() * 9000) + 1000}`;
-    const provNombre = selectedProveedor ? selectedProveedor.nombre : 'Proveedor General';
-    const provRuc = selectedProveedor ? selectedProveedor.ruc : '';
+    const provNombre = selectedProveedor.nombre;
+    const provRuc = selectedProveedor.ruc;
 
     try {
       await comprasService.createOrdenCompra({
@@ -233,32 +239,15 @@ export const OrdenCompraPage: React.FC = () => {
     }
     await refreshOrderHistory();
 
-    // Actualizar datos del Dashboard
-    const cached = localStorage.getItem('erp_dashboard_data');
-    if (cached) {
-      try {
-        const dashboardData = JSON.parse(cached);
-        dashboardData.comprasTotales += total;
-        
-        const today = new Date();
-        const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-        const dateStr = `${today.getDate().toString().padStart(2, '0')} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
-        
-        const descProv = provNombre.substring(0, 20);
-        const newMovement = {
-          id: Date.now(),
-          fecha: dateStr,
-          descripcion: `Compra a ${descProv} - Orden #${ocId}`,
-          tipo: 'salida',
-          monto: total
-        };
-
-        dashboardData.ultimosMovimientos = [newMovement, ...(dashboardData.ultimosMovimientos || [])].slice(0, 5);
-        localStorage.setItem('erp_dashboard_data', JSON.stringify(dashboardData));
-      } catch (e) {
-        console.error(e);
-      }
-    }
+    const now = new Date();
+    recordDashboardMovement({
+      id: `compra-${ocId}`,
+      timestamp: now.toISOString(),
+      fecha: now.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      descripcion: `Compra a ${provNombre.substring(0, 20)} - Orden #${ocId}`,
+      tipo: 'salida',
+      monto: total
+    });
 
     showToast(`¡Orden de Compra ${ocId} grabada con éxito! Se envió al módulo de ALMACÉN para la recepción de mercadería.`);
 
@@ -585,8 +574,8 @@ export const OrdenCompraPage: React.FC = () => {
           <div className={`${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'} rounded-2xl border shadow-sm p-6`}>
             <div className="flex justify-between items-start mb-5">
               <div>
-                <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>Datos del proveedor</h3>
-                <p className={`text-[13px] mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Datos editables y operativos</p>
+                <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>Datos del proveedor <span className="text-red-500">*</span></h3>
+                <p className={`text-[13px] mt-0.5 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Obligatorio para grabar la orden</p>
               </div>
               <Building2 className={`${darkMode ? 'text-slate-600' : 'text-gray-300'}`} size={20} />
             </div>
@@ -681,7 +670,7 @@ export const OrdenCompraPage: React.FC = () => {
                 </div>
                 <div className="text-left">
                   <p className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-[#2d3436]'}`}>Seleccionar un proveedor</p>
-                  <p className={`text-[12px] ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>Usa Buscar proveedor para cargar los datos.</p>
+                  <p className={`text-[12px] ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>Selecciona un proveedor para poder grabar la orden.</p>
                 </div>
               </button>
             )}

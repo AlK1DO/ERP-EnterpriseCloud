@@ -13,6 +13,7 @@ import autoTable from 'jspdf-autotable';
 
 import { inventarioService } from '../../services/inventarioService';
 import { supabase } from '@/lib/supabase';
+import { getRecordedDashboardMovements } from '../../lib/dashboardMovements';
 
 interface DashboardData {
   ventasTotales: number;
@@ -104,13 +105,22 @@ export const DashboardPage: React.FC = () => {
 
     // 7. Movimientos reales de Kardex
     const kardexMovs = await inventarioService.getMovimientos();
-    const ultimosMovimientos = kardexMovs.slice(0, 5).map((m, idx) => ({
-      id: m.id || idx,
+    const kardexMovements = kardexMovs.map((m, idx) => ({
+      id: `kardex-${m.id || idx}`,
+      timestamp: m.fecha,
       fecha: new Date(m.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
       descripcion: `${m.documentoTipo} ${m.documentoNumero} - ${m.productoDescripcion}`,
       tipo: m.tipoMovimiento === 'ENTRADA' ? 'ingreso' : 'salida',
       monto: m.tipoMovimiento === 'ENTRADA' ? (m.totalEntrada || 0) : (m.totalSalida || 0)
     }));
+    const allMovements = [...kardexMovements, ...getRecordedDashboardMovements()];
+    const getMovementTime = (movement: { timestamp?: string; fecha: string }) => {
+      const time = new Date(movement.timestamp || movement.fecha).getTime();
+      return Number.isNaN(time) ? 0 : time;
+    };
+    const ultimosMovimientos = allMovements
+      .sort((a, b) => getMovementTime(b) - getMovementTime(a))
+      .slice(0, 5);
 
     const now = new Date();
 

@@ -69,8 +69,17 @@ export const OrdenVentaPage: React.FC = () => {
       ventasService.getVentas(),
       Promise.resolve(JSON.parse(localStorage.getItem('erp_ordenes_venta') || '[]'))
     ]);
-    const actualOrders = dbOrders.filter(order => !/^(F001|B001)/i.test(order.numero));
-    const knownNumbers = new Set(actualOrders.map(order => order.numero));
+    const actualOrdersByNumber = new Map<string, (typeof dbOrders)[number]>();
+    dbOrders
+      .filter(order => !/^(F001|B001)/i.test(order.numero))
+      .forEach(order => actualOrdersByNumber.set(order.numero || order.id, order));
+    const actualOrders = Array.from(actualOrdersByNumber.values());
+    const knownNumbers = new Set(
+      actualOrders.flatMap(order => [
+        order.numero,
+        order.notas.match(/OV-\d+-\d+/)?.[0]
+      ].filter((number): number is string => Boolean(number)))
+    );
     const localOrders = cachedOrders
       .filter((order: any) => !knownNumbers.has(order.id))
       .map((order: any) => ({
@@ -360,7 +369,7 @@ export const OrdenVentaPage: React.FC = () => {
             }`}
           >
             <History size={16} />
-            Historial de compras
+            Historial de ventas
           </button>
           <button
             type="button"
@@ -792,7 +801,7 @@ export const OrdenVentaPage: React.FC = () => {
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Historial de compras del cliente"
+            aria-label="Historial de ventas del cliente"
             className={`my-auto w-full max-w-5xl overflow-hidden rounded-2xl border shadow-2xl ${
               darkMode ? 'border-slate-800 bg-slate-900 text-white' : 'border-gray-200 bg-white text-slate-900'
             }`}
@@ -803,9 +812,9 @@ export const OrdenVentaPage: React.FC = () => {
               <div className="flex items-center gap-3">
                 <History className="text-sky-500" size={20} />
                 <div>
-                  <h2 className="text-lg font-bold">Historial de compras del cliente</h2>
+                  <h2 className="text-lg font-bold">Historial de ventas del cliente</h2>
                   <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Busca únicamente por nombre o DNI.
+                    Busca por nombre, DNI o RUC.
                   </p>
                 </div>
               </div>
@@ -826,8 +835,8 @@ export const OrdenVentaPage: React.FC = () => {
                   type="search"
                   value={purchaseHistorySearch}
                   onChange={event => setPurchaseHistorySearch(event.target.value)}
-                  placeholder="Escribe el nombre del cliente o su DNI..."
-                  aria-label="Buscar historial por nombre o DNI"
+                  placeholder="Escribe el nombre del cliente, DNI o RUC..."
+                  aria-label="Buscar historial por nombre, DNI o RUC"
                   className={`w-full rounded-xl border py-3 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-sky-500/30 ${
                     darkMode ? 'border-slate-700 bg-slate-950 text-white placeholder-slate-500' : 'border-gray-300 bg-white text-slate-900'
                   }`}
@@ -840,7 +849,7 @@ export const OrdenVentaPage: React.FC = () => {
                     <tr>
                       <th className="px-4 py-3 text-xs font-semibold uppercase">Orden</th>
                       <th className="px-4 py-3 text-xs font-semibold uppercase">Cliente</th>
-                      <th className="px-4 py-3 text-xs font-semibold uppercase">DNI</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Documento</th>
                       <th className="px-4 py-3 text-xs font-semibold uppercase">Fecha</th>
                       <th className="px-4 py-3 text-xs font-semibold uppercase">Estado</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase">Total</th>
@@ -857,7 +866,7 @@ export const OrdenVentaPage: React.FC = () => {
                     ) : filteredCustomerOrders.length === 0 ? (
                       <tr>
                         <td colSpan={7} className={`px-4 py-10 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                          No se encontraron compras para “{purchaseHistorySearch}”.
+                          No se encontraron ventas para “{purchaseHistorySearch}”.
                         </td>
                       </tr>
                     ) : filteredCustomerOrders.map((order: any, index) => {
