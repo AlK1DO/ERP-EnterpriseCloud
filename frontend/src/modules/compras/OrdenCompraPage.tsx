@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle, ExternalLink, ArrowRight, X, Boxes
+  Plus, Search, Package, Receipt, Building2, Trash2, CheckCircle, ArrowRight, Eye, UserPlus, History, X
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
-import { proveedoresService } from '../../services/proveedoresService';
-import { comprasService } from '../../services/comprasService';
+import { proveedoresService, type Proveedor } from '../../services/proveedoresService';
+import { comprasService, type OrdenCompra } from '../../services/comprasService';
+import { QuickPartyCreateModal } from '../../components/QuickPartyCreateModal';
+import { OrderDetailsModal, type OrderDetails } from '../../components/OrderDetailsModal';
 
 interface ProductLine {
   id: string;
@@ -20,7 +22,6 @@ interface ProductLine {
 
 export const OrdenCompraPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
-  const navigate = useNavigate();
   const [products, setProducts] = useState<ProductLine[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [inputCant, setInputCant] = useState('');
@@ -40,33 +41,114 @@ export const OrdenCompraPage: React.FC = () => {
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
+  const [isSupplierHistoryOpen, setIsSupplierHistoryOpen] = useState(false);
+  const [supplierHistorySearch, setSupplierHistorySearch] = useState('');
   const [selectedProveedor, setSelectedProveedor] = useState<any>(null);
   const [proveedorSearch, setProveedorSearch] = useState('');
   const [proveedoresDB, setProveedoresDB] = useState<any[]>([]);
+  const [orderHistory, setOrderHistory] = useState<OrdenCompra[]>([]);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderDetails | null>(null);
   const [productDB, setProductDB] = useState<Producto[]>([]);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
+
+  const mapProveedorForOrder = (proveedor: Proveedor) => ({
+    id: proveedor.id,
+    nombre: proveedor.nombre,
+    tipo_persona: proveedor.tipo_persona || (proveedor.documento?.length === 11 ? 'JURIDICA' : 'NATURAL'),
+    tipo_documento: proveedor.documento?.length === 8 ? 'DNI' : 'RUC',
+    documento: proveedor.documento,
+    ruc: proveedor.documento,
+    email: proveedor.email || 'No registrado',
+    telefono: proveedor.telefono || 'No registrado',
+    direccion: proveedor.direccion || 'No registrada',
+    condicion_pago: proveedor.condicion_pago ?? 30,
+    condicion: proveedor.condicion_pago === 0 ? 'Contado' : `${proveedor.condicion_pago} días`,
+    estado: proveedor.estado || 'Activo'
+  });
+
+  const refreshOrderHistory = async () => {
+    const ordersFromService = await comprasService.getOrdenesCompra();
+    const dbOrders = ordersFromService.map((order: any) => ({
+      ...order,
+      id: order.id || order.uuid || order.codigo,
+      codigo: order.codigo || order.numero || order.id,
+      proveedor_nombre: order.proveedor_nombre || order.proveedor || 'Proveedor',
+      proveedor_documento: order.proveedor_documento || order.proveedor_ruc || order.ruc || '',
+      subtotal: Number(order.subtotal) || 0,
+      igv: Number(order.igv) || 0,
+      total: Number(order.total) || 0,
+      estado: order.estado || 'EMITIDA',
+      fecha_emision: order.fecha_emision || order.fecha || new Date().toISOString(),
+      items: (order.items || []).map((item: any) => ({
+        producto_codigo: item.producto_codigo || item.codigo || '',
+        producto_descripcion: item.producto_descripcion || item.descripcion || 'Producto',
+        unidad: item.unidad || 'UND',
+        cantidad: Number(item.cantidad) || 0,
+        costo_unitario: Number(item.costo_unitario ?? item.precioUnitario) || 0,
+        subtotal: Number(item.subtotal ?? item.importe) || 0
+      }))
+    }));
+    const cachedOrders = JSON.parse(localStorage.getItem('erp_ordenes_compra') || '[]');
+    const knownCodes = new Set(dbOrders.map(order => order.codigo));
+    const localOrders = cachedOrders
+      .filter((order: any) => !knownCodes.has(order.codigo || order.id))
+      .map((order: any) => ({
+        id: order.uuid || order.id,
+        codigo: order.codigo || order.id,
+        proveedor_id: order.proveedor_id,
+        proveedor_nombre: order.proveedor_nombre || order.proveedor || 'Proveedor',
+        proveedor_documento: order.proveedor_documento || order.ruc || '',
+        subtotal: Number(order.subtotal) || 0,
+        igv: Number(order.igv) || 0,
+        total: Number(order.total) || 0,
+        moneda: 'PEN',
+        estado: 'EMITIDA' as const,
+        fecha_emision: order.fecha || new Date().toISOString(),
+        items: (order.items || []).map((item: any) => ({
+          producto_codigo: item.producto_codigo || item.codigo || '',
+          producto_descripcion: item.producto_descripcion || item.descripcion || 'Producto',
+          unidad: item.unidad || 'UND',
+          cantidad: Number(item.cantidad) || 0,
+          costo_unitario: Number(item.costo_unitario ?? item.precioUnitario) || 0,
+          subtotal: Number(item.subtotal ?? item.importe) || 0
+        }))
+      }));
+    setOrderHistory([...dbOrders, ...localOrders]);
+  };
+
+  const getOrderSupplier = (order: OrdenCompra) => proveedoresDB.find(proveedor =>
+    (order.proveedor_id && proveedor.id === order.proveedor_id)
+    || proveedor.nombre.toLocaleLowerCase('es-PE') === String(order.proveedor_nombre || '').toLocaleLowerCase('es-PE')
+  );
+
+  const filteredSupplierOrders = useMemo(() => {
+    const query = supplierHistorySearch.trim().toLocaleLowerCase('es-PE');
+    if (!query) return [];
+
+    return orderHistory.filter(order => {
+      const supplier = getOrderSupplier(order);
+      const supplierName = String(order.proveedor_nombre || '').toLocaleLowerCase('es-PE');
+      const supplierDocument = String(
+        order.proveedor_documento
+        || supplier?.documento
+        || supplier?.ruc
+        || ''
+      ).toLocaleLowerCase('es-PE');
+
+      return supplierName.includes(query) || supplierDocument.includes(query);
+    });
+  }, [orderHistory, proveedoresDB, supplierHistorySearch]);
 
   useEffect(() => {
     inventarioService.getProductos().then(prods => {
       setProductDB(prods);
     });
     proveedoresService.getProveedores().then(provs => {
-      setProveedoresDB(provs.map(p => ({
-        id: p.id,
-        nombre: p.nombre,
-        tipo_persona: p.tipo_persona || (p.documento?.length === 11 ? 'JURIDICA' : 'NATURAL'),
-        tipo_documento: p.documento?.length === 8 ? 'DNI' : 'RUC',
-        documento: p.documento,
-        ruc: p.documento,
-        email: p.email || 'No registrado',
-        telefono: p.telefono || 'No registrado',
-        direccion: p.direccion || 'No registrada',
-        condicion_pago: p.condicion_pago ?? 30,
-        condicion: p.condicion_pago === 0 ? 'Contado' : `${p.condicion_pago} días`,
-        estado: p.estado || 'Activo'
-      })));
+      setProveedoresDB(provs.map(mapProveedorForOrder));
     });
+    void refreshOrderHistory();
   }, []);
 
   const filteredProducts = useMemo(() => {
@@ -149,6 +231,7 @@ export const OrdenCompraPage: React.FC = () => {
     } catch (err) {
       console.error('Error al guardar OC en backend:', err);
     }
+    await refreshOrderHistory();
 
     // Actualizar datos del Dashboard
     const cached = localStorage.getItem('erp_dashboard_data');
@@ -229,6 +312,30 @@ export const OrdenCompraPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setSupplierHistorySearch('');
+              setIsSupplierHistoryOpen(true);
+              void refreshOrderHistory();
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg border transition-colors ${
+              darkMode ? 'border-slate-700 text-slate-200 hover:bg-slate-800' : 'border-gray-200 text-slate-700 hover:bg-gray-50'
+            }`}
+          >
+            <History size={16} />
+            Historial de compras
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsQuickSupplierOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg border transition-colors ${
+              darkMode ? 'border-slate-700 text-teal-300 hover:bg-slate-800' : 'border-teal-200 text-teal-700 hover:bg-teal-50'
+            }`}
+          >
+            <UserPlus size={16} />
+            Nuevo proveedor
+          </button>
           <button 
             onClick={handleSaveOrder}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
@@ -632,6 +739,224 @@ export const OrdenCompraPage: React.FC = () => {
 
         </div>
       </div>
+
+      <section className={`overflow-hidden rounded-2xl border shadow-sm ${darkMode ? 'border-slate-800 bg-slate-900' : 'border-gray-100 bg-white'}`}>
+        <div className={`flex items-center justify-between border-b px-6 py-4 ${darkMode ? 'border-slate-800' : 'border-gray-100'}`}>
+          <div>
+            <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Órdenes de compra recientes</h2>
+            <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Consulta los productos y totales de cada pedido.</p>
+          </div>
+          <button type="button" onClick={() => void refreshOrderHistory()} aria-label="Actualizar órdenes de compra" className={`rounded-lg border p-2 text-sm ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-gray-200 text-slate-600 hover:bg-gray-50'}`}>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className={darkMode ? 'bg-slate-800/60 text-slate-400' : 'bg-gray-50 text-gray-500'}>
+              <tr>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Orden</th>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Proveedor</th>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Fecha</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold uppercase">Total</th>
+                <th className="px-6 py-3 text-center text-xs font-semibold uppercase">Detalles</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
+              {orderHistory.slice(0, 10).map((order, index) => (
+                <tr key={order.id || order.codigo || index}>
+                  <td className={`px-6 py-3 font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{order.codigo}</td>
+                  <td className={`px-6 py-3 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{order.proveedor_nombre}</td>
+                  <td className={`px-6 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{new Date(order.fecha_emision).toLocaleDateString('es-PE')}</td>
+                  <td className={`px-6 py-3 text-right font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{formatCurrency(order.total)}</td>
+                  <td className="px-6 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrderDetails({
+                        number: order.codigo,
+                        partyName: order.proveedor_nombre,
+                        document: order.proveedor_documento,
+                        date: order.fecha_emision,
+                        status: order.estado,
+                        subtotal: order.subtotal,
+                        tax: order.igv,
+                        total: order.total,
+                        notes: order.observaciones,
+                        lines: (order.items || []).map(item => ({
+                          code: item.producto_codigo,
+                          description: item.producto_descripcion,
+                          quantity: item.cantidad,
+                          unitPrice: item.costo_unitario,
+                          amount: item.subtotal
+                        }))
+                      })}
+                      aria-label={`Ver detalles de la orden ${order.codigo}`}
+                      title="Ver detalles"
+                      className="rounded-lg p-2 text-teal-600 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-slate-800"
+                    >
+                      <Eye size={17} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {orderHistory.length === 0 && (
+                <tr><td colSpan={5} className={`px-6 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Aún no hay órdenes de compra registradas.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {isSupplierHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Historial de compras por proveedor"
+            className={`my-auto w-full max-w-5xl overflow-hidden rounded-2xl border shadow-2xl ${
+              darkMode ? 'border-slate-800 bg-slate-900 text-white' : 'border-gray-200 bg-white text-slate-900'
+            }`}
+          >
+            <header className={`flex items-center justify-between border-b px-6 py-4 ${
+              darkMode ? 'border-slate-800' : 'border-gray-100'
+            }`}>
+              <div className="flex items-center gap-3">
+                <History className="text-teal-500" size={20} />
+                <div>
+                  <h2 className="text-lg font-bold">Historial de compras por proveedor</h2>
+                  <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Busca por nombre, DNI o RUC para ver todas sus órdenes de compra.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSupplierHistoryOpen(false)}
+                aria-label="Cerrar historial de compras"
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="space-y-4 p-6">
+              <div className="relative">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={17} />
+                <input
+                  type="search"
+                  value={supplierHistorySearch}
+                  onChange={event => setSupplierHistorySearch(event.target.value)}
+                  placeholder="Escribe el nombre, DNI o RUC del proveedor..."
+                  aria-label="Buscar órdenes por proveedor"
+                  className={`w-full rounded-xl border py-3 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-teal-500/30 ${
+                    darkMode ? 'border-slate-700 bg-slate-950 text-white placeholder-slate-500' : 'border-gray-300 bg-white text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className={`overflow-x-auto rounded-xl border ${darkMode ? 'border-slate-800' : 'border-gray-200'}`}>
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <thead className={darkMode ? 'bg-slate-800/70 text-slate-400' : 'bg-gray-50 text-gray-500'}>
+                    <tr>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Orden</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Proveedor</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">DNI / RUC</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Fecha</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Estado</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase">Total</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold uppercase">Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
+                    {!supplierHistorySearch.trim() ? (
+                      <tr>
+                        <td colSpan={7} className={`px-4 py-10 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Ingresa el nombre, DNI o RUC del proveedor para consultar su historial.
+                        </td>
+                      </tr>
+                    ) : filteredSupplierOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className={`px-4 py-10 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          No se encontraron órdenes de compra para “{supplierHistorySearch}”.
+                        </td>
+                      </tr>
+                    ) : filteredSupplierOrders.map((order, index) => {
+                      const supplier = getOrderSupplier(order);
+                      const document = order.proveedor_documento || supplier?.documento || supplier?.ruc || '—';
+                      const orderDate = new Date(order.fecha_emision);
+                      const dateLabel = Number.isNaN(orderDate.getTime())
+                        ? order.fecha_emision
+                        : orderDate.toLocaleDateString('es-PE');
+
+                      return (
+                        <tr key={order.id || order.codigo || index}>
+                          <td className={`px-4 py-3 font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{order.codigo}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{order.proveedor_nombre}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{document}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{dateLabel}</td>
+                          <td className="px-4 py-3">{order.estado}</td>
+                          <td className={`px-4 py-3 text-right font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{formatCurrency(order.total)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOrderDetails({
+                                number: order.codigo,
+                                partyName: order.proveedor_nombre,
+                                document: document === '—' ? undefined : document,
+                                date: order.fecha_emision,
+                                status: order.estado,
+                                subtotal: order.subtotal,
+                                tax: order.igv,
+                                total: order.total,
+                                notes: order.observaciones,
+                                lines: (order.items || []).map(item => ({
+                                  code: item.producto_codigo,
+                                  description: item.producto_descripcion,
+                                  quantity: item.cantidad,
+                                  unitPrice: item.costo_unitario,
+                                  amount: item.subtotal
+                                }))
+                              })}
+                              aria-label={`Ver detalle de la orden ${order.codigo}`}
+                              title="Ver detalle"
+                              className="rounded-lg p-2 text-teal-600 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-slate-800"
+                            >
+                              <Eye size={17} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isQuickSupplierOpen && (
+        <QuickPartyCreateModal
+          kind="proveedor"
+          darkMode={darkMode}
+          onClose={() => setIsQuickSupplierOpen(false)}
+          onCreated={party => {
+            if (!('condicion_pago' in party)) return;
+            const mappedProveedor = mapProveedorForOrder(party);
+            setProveedoresDB(current => [mappedProveedor, ...current]);
+            setSelectedProveedor(mappedProveedor);
+            setIsModalOpen(false);
+            setProveedorSearch('');
+          }}
+        />
+      )}
+      {selectedOrderDetails && (
+        <OrderDetailsModal
+          title="Detalle de orden de compra"
+          order={selectedOrderDetails}
+          darkMode={darkMode}
+          onClose={() => setSelectedOrderDetails(null)}
+        />
+      )}
 
       {/* Modal Buscar Proveedor */}
       <AnimatePresence>

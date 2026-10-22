@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useOutletContext, useNavigate } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, Search, Package, Receipt, Users, Trash2, CheckCircle, ArrowRight
+  Plus, Search, Package, Receipt, Users, Trash2, CheckCircle, ArrowRight, Eye, UserPlus, History, X
 } from 'lucide-react';
 import { inventarioService, type Producto } from '../../services/inventarioService';
-import { clientesService } from '../../services/clientesService';
+import { clientesService, type Cliente } from '../../services/clientesService';
 import { ventasService } from '../../services/ventasService';
+import { QuickPartyCreateModal } from '../../components/QuickPartyCreateModal';
+import { OrderDetailsModal, type OrderDetails } from '../../components/OrderDetailsModal';
 
 interface ProductLine {
   id: string;
@@ -19,7 +21,6 @@ interface ProductLine {
 
 export const OrdenVentaPage: React.FC = () => {
   const { darkMode } = useOutletContext<{ darkMode: boolean }>();
-  const navigate = useNavigate();
   const [products, setProducts] = useState<ProductLine[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [inputCant, setInputCant] = useState('');
@@ -33,8 +34,13 @@ export const OrdenVentaPage: React.FC = () => {
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
+  const [isPurchaseHistoryOpen, setIsPurchaseHistoryOpen] = useState(false);
+  const [purchaseHistorySearch, setPurchaseHistorySearch] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<any>(null);
   const [clienteSearch, setClienteSearch] = useState('');
+  const [orderHistory, setOrderHistory] = useState<any[]>([]);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderDetails | null>(null);
 
   // Clientes desde Supabase con información completa
   const [clientesDB, setClientesDB] = useState<any[]>([]);
@@ -43,26 +49,83 @@ export const OrdenVentaPage: React.FC = () => {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Producto | null>(null);
 
+  const mapClienteForOrder = (cliente: Cliente) => ({
+    id: cliente.id,
+    nombre: cliente.nombre,
+    tipo_persona: cliente.tipo_persona,
+    tipo_documento: cliente.documento?.length === 8 ? 'DNI' : 'RUC',
+    documento: cliente.documento,
+    ruc: cliente.documento,
+    telefono: cliente.telefono || 'Sin teléfono',
+    email: cliente.email || 'Sin correo',
+    direccion: cliente.direccion || 'Sin dirección',
+    condicion: cliente.limite_credito > 0 ? `Crédito (S/ ${cliente.limite_credito})` : 'Contado',
+    tipo: cliente.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural',
+    estado: cliente.estado || 'Activo'
+  });
+
+  const refreshOrderHistory = async () => {
+    const [dbOrders, cachedOrders] = await Promise.all([
+      ventasService.getVentas(),
+      Promise.resolve(JSON.parse(localStorage.getItem('erp_ordenes_venta') || '[]'))
+    ]);
+    const actualOrders = dbOrders.filter(order => !/^(F001|B001)/i.test(order.numero));
+    const knownNumbers = new Set(actualOrders.map(order => order.numero));
+    const localOrders = cachedOrders
+      .filter((order: any) => !knownNumbers.has(order.id))
+      .map((order: any) => ({
+        id: order.id,
+        numero: order.id,
+        cliente_nombre: order.cliente || 'Cliente',
+        cliente_documento: order.ruc || order.documento || '',
+        fecha: order.fecha,
+        estado: order.estado || 'Pendiente',
+        subtotal: Number(order.total) / 1.18,
+        igv: Number(order.total) - Number(order.total) / 1.18,
+        total: Number(order.total) || 0,
+        moneda: 'PEN',
+        notas: '',
+        items: (order.items || []).map((item: any, index: number) => ({
+          id: `${order.id}-${index}`,
+          descripcion: item.desc || item.descripcion || 'Producto',
+          cantidad: Number(item.cant ?? item.cantidad) || 0,
+          precio_unitario: Number(item.pUnitario ?? item.precioUnitario) || 0,
+          subtotal: Number(item.total ?? item.importe) || 0
+        }))
+      }));
+    setOrderHistory([...actualOrders, ...localOrders]);
+  };
+
+  const filteredCustomerOrders = useMemo(() => {
+    const query = purchaseHistorySearch.trim().toLocaleLowerCase('es-PE');
+    if (!query) return [];
+
+    return orderHistory.filter((order: any) => {
+      const orderClient = clientesDB.find(cliente =>
+        (order.cliente_id && cliente.id === order.cliente_id)
+        || cliente.nombre.toLocaleLowerCase('es-PE') === String(order.cliente_nombre || '').toLocaleLowerCase('es-PE')
+      );
+      const clientDocument = String(
+        orderClient?.documento
+        || order.cliente_documento
+        || order.documento
+        || order.ruc
+        || ''
+      ).toLocaleLowerCase('es-PE');
+      const clientName = String(order.cliente_nombre || '').toLocaleLowerCase('es-PE');
+
+      return clientName.includes(query) || clientDocument.includes(query);
+    });
+  }, [clientesDB, orderHistory, purchaseHistorySearch]);
+
   useEffect(() => {
     inventarioService.getProductos().then(prods => {
       setProductDB(prods);
     });
     clientesService.getClientes().then(cls => {
-      setClientesDB(cls.map(c => ({
-        id: c.id,
-        nombre: c.nombre,
-        tipo_persona: c.tipo_persona,
-        tipo_documento: c.documento?.length === 8 ? 'DNI' : 'RUC',
-        documento: c.documento,
-        ruc: c.documento,
-        telefono: c.telefono || 'Sin teléfono',
-        email: c.email || 'Sin correo',
-        direccion: c.direccion || 'Sin dirección',
-        condicion: c.limite_credito > 0 ? `Crédito (S/ ${c.limite_credito})` : 'Contado',
-        tipo: c.tipo_persona === 'JURIDICA' ? 'Persona Jurídica' : 'Persona Natural',
-        estado: c.estado || 'Activo'
-      })));
+      setClientesDB(cls.map(mapClienteForOrder));
     });
+    void refreshOrderHistory();
   }, []);
 
   const filteredProducts = useMemo(() => {
@@ -246,6 +309,7 @@ export const OrdenVentaPage: React.FC = () => {
     
     const filteredLocal = ordersDB.filter((o: any) => o.id !== ovId && o.id !== `VEN-${ovId.replace('OV-2026-', '')}`);
     localStorage.setItem('erp_ordenes_venta', JSON.stringify([newOrder, ...filteredLocal]));
+    await refreshOrderHistory();
 
     showToast(`¡Orden de Venta ${ovId} grabada con éxito! Se envió al módulo de FACTURACIÓN para la emisión del comprobante.`);
     
@@ -284,6 +348,30 @@ export const OrdenVentaPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setPurchaseHistorySearch('');
+              setIsPurchaseHistoryOpen(true);
+              void refreshOrderHistory();
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg border transition-colors ${
+              darkMode ? 'border-slate-700 text-slate-200 hover:bg-slate-800' : 'border-gray-200 text-slate-700 hover:bg-gray-50'
+            }`}
+          >
+            <History size={16} />
+            Historial de compras
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsQuickClientOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg border transition-colors ${
+              darkMode ? 'border-slate-700 text-sky-300 hover:bg-slate-800' : 'border-sky-200 text-sky-700 hover:bg-sky-50'
+            }`}
+          >
+            <UserPlus size={16} />
+            Nuevo cliente
+          </button>
           <button 
             onClick={handleSaveOrder}
             className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-lg text-white transition-colors shadow-sm"
@@ -633,6 +721,225 @@ export const OrdenVentaPage: React.FC = () => {
 
         </div>
       </div>
+
+      <section className={`overflow-hidden rounded-2xl border shadow-sm ${darkMode ? 'border-slate-800 bg-slate-900' : 'border-gray-100 bg-white'}`}>
+        <div className={`flex items-center justify-between border-b px-6 py-4 ${darkMode ? 'border-slate-800' : 'border-gray-100'}`}>
+          <div>
+            <h2 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Órdenes de venta recientes</h2>
+            <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Consulta el detalle de los pedidos grabados.</p>
+          </div>
+          <button type="button" onClick={() => void refreshOrderHistory()} aria-label="Actualizar órdenes de venta" className={`rounded-lg border p-2 text-sm ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-gray-200 text-slate-600 hover:bg-gray-50'}`}>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className={darkMode ? 'bg-slate-800/60 text-slate-400' : 'bg-gray-50 text-gray-500'}>
+              <tr>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Orden</th>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Cliente</th>
+                <th className="px-6 py-3 text-xs font-semibold uppercase">Fecha</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold uppercase">Total</th>
+                <th className="px-6 py-3 text-center text-xs font-semibold uppercase">Detalles</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
+              {orderHistory.slice(0, 10).map((order, index) => (
+                <tr key={order.id || order.numero || index}>
+                  <td className={`px-6 py-3 font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{order.numero || order.id}</td>
+                  <td className={`px-6 py-3 ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{order.cliente_nombre}</td>
+                  <td className={`px-6 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{new Date(order.fecha).toLocaleDateString('es-PE')}</td>
+                  <td className={`px-6 py-3 text-right font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{formatCurrency(Number(order.total) || 0)}</td>
+                  <td className="px-6 py-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrderDetails({
+                        number: order.numero || order.id,
+                        partyName: order.cliente_nombre || 'Cliente',
+                        document: clientesDB.find(cliente => cliente.id === order.cliente_id)?.documento,
+                        date: order.fecha,
+                        status: order.estado || 'Pendiente',
+                        subtotal: Number(order.subtotal) || 0,
+                        tax: Number(order.igv) || 0,
+                        total: Number(order.total) || 0,
+                        notes: order.notas,
+                        lines: (order.items || []).map((item: any) => ({
+                          description: item.descripcion || 'Producto',
+                          quantity: Number(item.cantidad) || 0,
+                          unitPrice: Number(item.precio_unitario) || 0,
+                          amount: Number(item.subtotal) || 0
+                        }))
+                      })}
+                      aria-label={`Ver detalles de la orden ${order.numero || order.id}`}
+                      title="Ver detalles"
+                      className="rounded-lg p-2 text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-slate-800"
+                    >
+                      <Eye size={17} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {orderHistory.length === 0 && (
+                <tr><td colSpan={5} className={`px-6 py-8 text-center text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Aún no hay órdenes de venta registradas.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {isPurchaseHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Historial de compras del cliente"
+            className={`my-auto w-full max-w-5xl overflow-hidden rounded-2xl border shadow-2xl ${
+              darkMode ? 'border-slate-800 bg-slate-900 text-white' : 'border-gray-200 bg-white text-slate-900'
+            }`}
+          >
+            <header className={`flex items-center justify-between border-b px-6 py-4 ${
+              darkMode ? 'border-slate-800' : 'border-gray-100'
+            }`}>
+              <div className="flex items-center gap-3">
+                <History className="text-sky-500" size={20} />
+                <div>
+                  <h2 className="text-lg font-bold">Historial de compras del cliente</h2>
+                  <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Busca únicamente por nombre o DNI.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPurchaseHistoryOpen(false)}
+                aria-label="Cerrar historial"
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="space-y-4 p-6">
+              <div className="relative">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`} size={17} />
+                <input
+                  type="search"
+                  value={purchaseHistorySearch}
+                  onChange={event => setPurchaseHistorySearch(event.target.value)}
+                  placeholder="Escribe el nombre del cliente o su DNI..."
+                  aria-label="Buscar historial por nombre o DNI"
+                  className={`w-full rounded-xl border py-3 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-sky-500/30 ${
+                    darkMode ? 'border-slate-700 bg-slate-950 text-white placeholder-slate-500' : 'border-gray-300 bg-white text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className={`overflow-x-auto rounded-xl border ${darkMode ? 'border-slate-800' : 'border-gray-200'}`}>
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className={darkMode ? 'bg-slate-800/70 text-slate-400' : 'bg-gray-50 text-gray-500'}>
+                    <tr>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Orden</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Cliente</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">DNI</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Fecha</th>
+                      <th className="px-4 py-3 text-xs font-semibold uppercase">Estado</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase">Total</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold uppercase">Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
+                    {!purchaseHistorySearch.trim() ? (
+                      <tr>
+                        <td colSpan={7} className={`px-4 py-10 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Ingresa un nombre o DNI para consultar el historial del cliente.
+                        </td>
+                      </tr>
+                    ) : filteredCustomerOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className={`px-4 py-10 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          No se encontraron compras para “{purchaseHistorySearch}”.
+                        </td>
+                      </tr>
+                    ) : filteredCustomerOrders.map((order: any, index) => {
+                      const client = clientesDB.find(cliente =>
+                        (order.cliente_id && cliente.id === order.cliente_id)
+                        || cliente.nombre.toLocaleLowerCase('es-PE') === String(order.cliente_nombre || '').toLocaleLowerCase('es-PE')
+                      );
+                      const document = client?.documento || order.cliente_documento || order.documento || order.ruc || '—';
+                      const orderDate = new Date(order.fecha);
+                      const dateLabel = Number.isNaN(orderDate.getTime())
+                        ? order.fecha
+                        : orderDate.toLocaleDateString('es-PE');
+
+                      return (
+                        <tr key={order.id || order.numero || index}>
+                          <td className={`px-4 py-3 font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{order.numero || order.id}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{order.cliente_nombre}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{document}</td>
+                          <td className={`px-4 py-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{dateLabel}</td>
+                          <td className="px-4 py-3">{order.estado || 'Pendiente'}</td>
+                          <td className={`px-4 py-3 text-right font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{formatCurrency(Number(order.total) || 0)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOrderDetails({
+                                number: order.numero || order.id,
+                                partyName: order.cliente_nombre || 'Cliente',
+                                document: document === '—' ? undefined : document,
+                                date: order.fecha,
+                                status: order.estado || 'Pendiente',
+                                subtotal: Number(order.subtotal) || 0,
+                                tax: Number(order.igv) || 0,
+                                total: Number(order.total) || 0,
+                                notes: order.notas,
+                                lines: (order.items || []).map((item: any) => ({
+                                  description: item.descripcion || 'Producto',
+                                  quantity: Number(item.cantidad) || 0,
+                                  unitPrice: Number(item.precio_unitario) || 0,
+                                  amount: Number(item.subtotal) || 0
+                                }))
+                              })}
+                              aria-label={`Ver detalle de compra ${order.numero || order.id}`}
+                              title="Ver detalle de compra"
+                              className="rounded-lg p-2 text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-slate-800"
+                            >
+                              <Eye size={17} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isQuickClientOpen && (
+        <QuickPartyCreateModal
+          kind="cliente"
+          darkMode={darkMode}
+          onClose={() => setIsQuickClientOpen(false)}
+          onCreated={party => {
+            if (!('limite_credito' in party)) return;
+            const mappedCliente = mapClienteForOrder(party);
+            setClientesDB(current => [mappedCliente, ...current]);
+            setSelectedCliente(mappedCliente);
+            setIsModalOpen(false);
+            setClienteSearch('');
+          }}
+        />
+      )}
+      {selectedOrderDetails && (
+        <OrderDetailsModal
+          title="Detalle de orden de venta"
+          order={selectedOrderDetails}
+          darkMode={darkMode}
+          onClose={() => setSelectedOrderDetails(null)}
+        />
+      )}
 
       {/* Modal Buscar Cliente */}
       <AnimatePresence>

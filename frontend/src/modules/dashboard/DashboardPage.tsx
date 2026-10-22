@@ -6,8 +6,7 @@ import {
   DollarSign, Percent, Download, RefreshCw, AlertTriangle, ArrowUpRight, ArrowDownRight, FileSpreadsheet
 } from 'lucide-react';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, PieChart, Pie, Cell
+  Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -24,12 +23,8 @@ interface DashboardData {
   chartDataSemanal: { name: string; Ventas: number; Compras: number }[];
   chartDataMensual: { name: string; Ventas: number; Compras: number }[];
   chartDataAnual: { name: string; Ventas: number; Compras: number }[];
-  chartData?: any[];
-  areaChartData: any[];
-  pieData: any[];
   stockList: any[];
   ultimosMovimientos: any[];
-  currentMonthYear: string;
 }
 
 export const DashboardPage: React.FC = () => {
@@ -41,8 +36,6 @@ export const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [chartPeriod, setChartPeriod] = useState<'semanal' | 'mensual' | 'anual'>('mensual');
-
-  const PIE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6'];
 
   const computeRealData = async (): Promise<DashboardData> => {
     // 1. Ventas reales de Supabase y local
@@ -119,22 +112,9 @@ export const DashboardPage: React.FC = () => {
       monto: m.tipoMovimiento === 'ENTRADA' ? (m.totalEntrada || 0) : (m.totalSalida || 0)
     }));
 
-    // 8. Participación por línea según valorización de inventario (normalizando nombres)
-    const catMap: Record<string, number> = {};
-    productos.forEach(p => {
-      const raw = (p.categoria || (p as any).linea || 'Varios').trim();
-      const normalized = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-      catMap[normalized] = (catMap[normalized] || 0) + ((p.stock || 0) * (p.precioVenta || 0));
-    });
-    const pieData = Object.entries(catMap).map(([name, value]) => ({ name, value: Math.round(value) }));
-    if (pieData.length === 0) {
-      pieData.push({ name: 'Sin productos', value: 1 });
-    }
-
     const now = new Date();
-    const currentMonthYear = now.toLocaleDateString('es-PE', { month: 'long', year: 'numeric' }).toUpperCase();
 
-    // 9. Generar Gráfico Semanal (últimos 7 días)
+    // 8. Generar Gráfico Semanal (últimos 7 días)
     const diasShort = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const chartDataSemanal: { name: string; Ventas: number; Compras: number }[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -157,7 +137,7 @@ export const DashboardPage: React.FC = () => {
       });
     }
 
-    // 10. Generar Gráfico Mensual (últimos 6 meses)
+    // 9. Generar Gráfico Mensual (últimos 6 meses)
     const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const chartDataMensual: { name: string; Ventas: number; Compras: number }[] = [];
     for (let i = 5; i >= 0; i--) {
@@ -181,7 +161,7 @@ export const DashboardPage: React.FC = () => {
       });
     }
 
-    // 11. Generar Gráfico Anual
+    // 10. Generar Gráfico Anual
     const chartDataAnual = [
       { name: '2024', Ventas: 0, Compras: 0 },
       { name: '2025', Ventas: 0, Compras: 0 },
@@ -190,14 +170,6 @@ export const DashboardPage: React.FC = () => {
         Ventas: Math.round(ventasTotales),
         Compras: Math.round(comprasTotales)
       }
-    ];
-
-    const areaChartData = [
-      { name: 'L', value: Math.round(ventasTotales * 0.1) },
-      { name: 'M', value: Math.round(ventasTotales * 0.15) },
-      { name: 'X', value: Math.round(ventasTotales * 0.2) },
-      { name: 'J', value: Math.round(ventasTotales * 0.25) },
-      { name: 'V', value: Math.round(ventasTotales * 0.3) },
     ];
 
     return {
@@ -209,11 +181,8 @@ export const DashboardPage: React.FC = () => {
       chartDataSemanal,
       chartDataMensual,
       chartDataAnual,
-      areaChartData,
-      pieData,
       stockList,
-      ultimosMovimientos,
-      currentMonthYear
+      ultimosMovimientos
     };
   };
 
@@ -392,9 +361,14 @@ export const DashboardPage: React.FC = () => {
   }
 
   const formatCurrency = (val: number) => `S/ ${val.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const selectedChartData = chartPeriod === 'semanal'
+    ? data.chartDataSemanal
+    : chartPeriod === 'mensual'
+      ? data.chartDataMensual
+      : data.chartDataAnual;
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6 max-w-7xl mx-auto pb-10">
+    <motion.div variants={containerVariants} initial="hidden" animate="show" className="w-full min-w-0 space-y-6 pb-10">
       
       {/* Botonera Superior (No incluida en el PDF) */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
@@ -433,7 +407,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Contenedor que será capturado por html2canvas */}
-      <div ref={dashboardRef} className="space-y-6">
+      <div ref={dashboardRef} className="w-full space-y-6">
         
         {/* KPI Cards Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -484,161 +458,121 @@ export const DashboardPage: React.FC = () => {
           </motion.div>
         </div>
 
-        {/* Main Bar Chart */}
-        <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[400px] flex flex-col`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        {/* Ventas vs. Compras */}
+        <motion.div variants={itemVariants} className={`w-full min-w-0 px-4 pt-5 sm:px-6 rounded-2xl border lg:col-span-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[440px] flex flex-col`}>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-2">
             <div>
-              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas vs. Compras</h3>
-              <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                {chartPeriod === 'semanal' ? 'Últimos 7 días' : chartPeriod === 'mensual' ? 'Últimos 6 meses' : 'Histórico Anual'}
+              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas y compras</h3>
+              <p className={`mt-1 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Evolución del período seleccionado · {chartPeriod === 'semanal' ? 'Últimos 7 días' : chartPeriod === 'mensual' ? 'Últimos 6 meses' : 'Histórico anual'}
               </p>
             </div>
 
-            {/* Selector de periodo Semanal / Mensual / Anual */}
-            <div className={`flex items-center p-1 rounded-xl border text-xs font-semibold ${
-              darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-100 border-slate-200'
-            }`}>
-              <button
-                type="button"
-                onClick={() => setChartPeriod('semanal')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  chartPeriod === 'semanal'
-                    ? 'bg-blue-600 text-white shadow-sm font-bold'
-                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Semanal
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartPeriod('mensual')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  chartPeriod === 'mensual'
-                    ? 'bg-blue-600 text-white shadow-sm font-bold'
-                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Mensual
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartPeriod('anual')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  chartPeriod === 'anual'
-                    ? 'bg-blue-600 text-white shadow-sm font-bold'
-                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Anual
-              </button>
+            <div className="flex flex-col sm:items-end gap-2">
+              <div className={`flex items-center p-1 rounded-xl border text-xs font-semibold ${
+                darkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-100 border-slate-200'
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => setChartPeriod('semanal')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    chartPeriod === 'semanal'
+                      ? 'bg-blue-600 text-white shadow-sm font-bold'
+                      : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Semanal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartPeriod('mensual')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    chartPeriod === 'mensual'
+                      ? 'bg-blue-600 text-white shadow-sm font-bold'
+                      : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Mensual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartPeriod('anual')}
+                  className={`px-3 py-1.5 rounded-lg transition-all ${
+                    chartPeriod === 'anual'
+                      ? 'bg-blue-600 text-white shadow-sm font-bold'
+                      : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Anual
+                </button>
+              </div>
+              <div className={`flex items-center gap-4 text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-blue-600" />
+                  Ventas
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-teal-500" />
+                  Compras
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="flex-1 w-full min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={
-                  chartPeriod === 'semanal' 
-                    ? data.chartDataSemanal 
-                    : chartPeriod === 'mensual' 
-                      ? data.chartDataMensual 
-                      : data.chartDataAnual
-                } 
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+              <ComposedChart 
+                data={selectedChartData}
+                margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} tickFormatter={(val) => `S/ ${(val / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 11 }} dy={8} />
+                <YAxis width={48} axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 11 }} tickFormatter={(val) => `S/ ${(val / 1000).toFixed(0)}k`} />
                 <Tooltip 
-                  cursor={{ fill: darkMode ? '#1e293b' : '#f8fafc' }}
+                  cursor={{ stroke: darkMode ? '#475569' : '#cbd5e1', strokeDasharray: '3 3' }}
                   contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
-                  formatter={(value: any) => [formatCurrency(value), '']}
+                  formatter={(value, name) => [formatCurrency(Number(value) || 0), String(name ?? '')]}
                 />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px' }} />
-                <Bar dataKey="Ventas" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={28} />
-                <Bar dataKey="Compras" fill={darkMode ? '#38bdf8' : '#bfdbfe'} radius={[4, 4, 0, 0]} barSize={28} />
-              </BarChart>
+                <defs>
+                  <linearGradient id="salesAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1673f9" stopOpacity={0.16} />
+                    <stop offset="95%" stopColor="#1673f9" stopOpacity={0.01} />
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="Ventas"
+                  stroke="#1673f9"
+                  strokeWidth={3}
+                  fill="url(#salesAreaGradient)"
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="Compras"
+                  stroke="#20aa9e"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
+          </div>
+          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t py-3 text-xs ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
+            <p>
+              Total ventas <span className={`ml-1 font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{formatCurrency(data.ventasTotales)}</span>
+            </p>
+            <p>
+              Total compras <span className={`ml-1 font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{formatCurrency(data.comprasTotales)}</span>
+            </p>
           </div>
         </motion.div>
 
-        {/* Row for Area Chart & Pie Chart */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Ventas de la semana (Area Chart) */}
-          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} h-[340px] flex flex-col`}>
-            <div className="mb-2">
-              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Ventas de la semana</h3>
-              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>ÚLTIMOS 7 DÍAS</p>
-            </div>
-            <div className="flex-1 w-full min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.areaChartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#e2e8f0'} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: darkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
-                  />
-                  <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
-
-          {/* Participación por línea (Pie Chart) */}
-          <motion.div variants={itemVariants} className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'} min-h-[340px] flex flex-col`}>
-            <div className="mb-2">
-              <h3 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>Participación por línea</h3>
-              <p className={`text-xs uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                {data.currentMonthYear}
-              </p>
-            </div>
-            <div className="flex-1 w-full min-h-[220px] relative flex flex-col justify-between">
-              <ResponsiveContainer width="100%" height={170}>
-                <PieChart>
-                  <Pie
-                    data={data.pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={75}
-                    paddingAngle={4}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {data.pieData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: darkMode ? '#0f172a' : '#ffffff', borderColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '8px' }}
-                    formatter={(val: any) => [formatCurrency(val), 'Valor']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Custom Legend */}
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-2 pb-1">
-                {data.pieData.map((entry, index) => (
-                  <div key={index} className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></div>
-                    <span className={`text-[11px] font-medium ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>{entry.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-
-        </div>
-
         {/* Alerta Activa - Stock */}
-        <motion.div variants={itemVariants} className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200'}`}>
+        <motion.div variants={itemVariants} className={`min-w-0 rounded-2xl border overflow-hidden lg:h-[440px] lg:flex lg:flex-col ${darkMode ? 'bg-slate-900 border-orange-900/50' : 'bg-white border-orange-200'}`}>
           <div className={`px-5 py-3 border-b flex items-center justify-between ${darkMode ? 'bg-orange-950/30 border-orange-900/50' : 'bg-orange-50 border-orange-100'}`}>
             <div className="flex items-center gap-2 text-orange-600 dark:text-orange-500 font-bold text-sm tracking-widest uppercase">
               <AlertTriangle size={16} /> ALERTA ACTIVA
@@ -646,7 +580,7 @@ export const DashboardPage: React.FC = () => {
             <span className="text-xs font-mono text-orange-500 dark:text-orange-600/70">ALR-3041</span>
           </div>
           
-          <div className="p-6">
+          <div className="p-5 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
             <h4 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>
               {data.stockBajo > 0 
                 ? `Stock por debajo del mínimo en ${data.stockBajo} referencias` 
@@ -658,7 +592,7 @@ export const DashboardPage: React.FC = () => {
                 : 'Todas las referencias activas cuentan con existencias suficientes según el stock de seguridad.'}
             </p>
             
-            <div className="mt-6 space-y-4">
+            <div className="mt-4 space-y-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto custom-scrollbar">
               {data.stockList.filter(item => item.current <= item.min).length === 0 ? (
                 <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No hay alertas críticas pendientes.</p>
               ) : (
@@ -677,7 +611,7 @@ export const DashboardPage: React.FC = () => {
               )}
             </div>
 
-            <div className="mt-6 flex gap-3 pdf-exclude-buttons">
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row lg:mt-auto lg:pt-4 pdf-exclude-buttons">
               <button 
                 onClick={() => navigate('/orden-compra')}
                 className="flex-1 bg-orange-100 hover:bg-orange-200 text-orange-700 dark:bg-orange-500/10 dark:hover:bg-orange-500/20 dark:text-orange-400 py-2.5 rounded-lg text-sm font-bold transition-colors"
@@ -690,6 +624,7 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
         </motion.div>
+        </div>
 
         {/* Ultimos Movimientos */}
         <motion.div variants={itemVariants} className={`rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>

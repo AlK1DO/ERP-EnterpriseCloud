@@ -3,8 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon,
-  Users, Building2
+  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -19,14 +18,12 @@ const MENU_SECTIONS = [
   {
     title: 'COMPRAS',
     items: [
-      { name: 'Proveedores', path: '/proveedores', icon: <Building2 size={20} /> },
       { name: 'Orden de compra', path: '/orden-compra', icon: <ShoppingCart size={20} /> },
     ]
   },
   {
     title: 'VENTAS',
     items: [
-      { name: 'Clientes', path: '/clientes', icon: <Users size={20} /> },
       { name: 'Cotizaciones', path: '/cotizaciones', icon: <FileText size={20} /> },
       { name: 'Orden de venta', path: '/orden-venta', icon: <Receipt size={20} /> },
       { name: 'Facturación', path: '/facturacion', icon: <FileText size={20} /> },
