@@ -13,6 +13,7 @@ import { MantenimientosPage } from './modules/mantenimientos/MantenimientosPage'
 import { ClientesPage } from './modules/clientes/ClientesPage';
 import { ProveedoresPage } from './modules/proveedores/ProveedoresPage';
 import { CotizacionesPage } from './modules/cotizaciones/CotizacionesPage';
+import { MaestrosPage } from './modules/maestros/MaestrosPage';
 import { LoginPage } from '@/components/ui/sign-in-page';
 import { SignUpPage } from '@/components/ui/sign-up-page';
 
@@ -38,6 +39,7 @@ function App() {
 
           {/* Módulos de Administración y Maestros (desde rama-SSJ) */}
           <Route path="reportes" element={<ReportesPage />} />
+          <Route path="maestros" element={<MaestrosPage />} />
           <Route path="mantenimientos" element={<MantenimientosPage />} />
           <Route path="clientes" element={<ClientesPage />} />
           <Route path="proveedores" element={<ProveedoresPage />} />

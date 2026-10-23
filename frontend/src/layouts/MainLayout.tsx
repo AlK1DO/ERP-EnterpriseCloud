@@ -3,7 +3,8 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon
+  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon,
+  Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -13,6 +14,12 @@ const MENU_SECTIONS = [
     title: 'INICIO',
     items: [
       { name: 'Panel', path: '/', icon: <LayoutDashboard size={20} /> },
+    ]
+  },
+  {
+    title: 'MAESTROS',
+    items: [
+      { name: 'Datos maestros', path: '/maestros', icon: <Layers size={20} /> },
     ]
   },
   {
@@ -41,8 +48,8 @@ const MENU_SECTIONS = [
   {
     title: 'ADMINISTRACIÓN',
     items: [
-      { name: 'Reportes', path: '/reportes', icon: <FileBarChart size={20} /> },
       { name: 'Mantenimientos', path: '/mantenimientos', icon: <Settings size={20} /> },
+      { name: 'Reportes', path: '/reportes', icon: <FileBarChart size={20} /> },
     ]
   }
 ];
