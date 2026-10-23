@@ -6,6 +6,8 @@
     "build": "cd frontend && npm run build"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.118.0"
+    "@supabase/supabase-js": "^2.118.0",
+    "@types/jszip": "^3.4.0",
+    "jszip": "^3.10.2"
   }
 }

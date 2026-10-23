@@ -3,7 +3,8 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon
+  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon,
+  Cloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -36,6 +37,12 @@ const MENU_SECTIONS = [
       { name: 'Stock de productos', path: '/stock-productos', icon: <Boxes size={20} /> },
       { name: 'Ingreso al Kardex', path: '/ingreso-kardex', icon: <Package size={20} /> },
       { name: 'Movimiento de Kardex', path: '/movimiento-kardex', icon: <ArrowRightLeft size={20} /> },
+    ]
+  },
+  {
+    title: 'CLOUD & SEGURIDAD',
+    items: [
+      { name: 'Auditoría & Migración AWS', path: '/auditoria-cloud', icon: <Cloud size={20} /> },
     ]
   },
   {
@@ -188,12 +195,12 @@ export const MainLayout: React.FC = () => {
           darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
         }`}>
           <div className="flex items-center gap-4">
-             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-               <Menu size={20} />
-             </button>
-             <div className="hidden sm:block">
-               <h2 className="text-sm font-semibold opacity-70">ERP SENATINO</h2>
-             </div>
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <Menu size={20} />
+            </button>
+            <div className="hidden sm:block">
+              <h2 className="text-sm font-semibold opacity-70">ERP SENATINO</h2>
+            </div>
           </div>
           
           <div className="flex items-center gap-3">
