@@ -6,7 +6,7 @@ import {
   FileArchive, RefreshCw, Trash2, Download, Search,
   Layers, Check, ArrowLeft, HelpCircle
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { CloudAuditService } from '@/services/cloudAuditService';
 import type { 
   AuditProject, 
@@ -21,18 +21,20 @@ export const CloudAuditoriaPage: React.FC = () => {
   const [urlInput, setUrlInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scanStep, setScanStep] = useState(0);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [analyzingTarget, setAnalyzingTarget] = useState('');
   const [selectedResultTab, setSelectedResultTab] = useState<'aws' | 'audit' | 'zip'>('aws');
   const [checkFilter, setCheckFilter] = useState<'all' | 'fail' | 'warn' | 'pass'>('all');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
-  const SCAN_STEPS = [
-    'Estableciendo conexión y validando sintaxis de red...',
-    'Inspeccionando certificados digitales SSL/TLS y cifrado...',
-    'Evaluando cabeceras defensivas HTTP (HSTS, CSP, X-Frame)...',
-    'Escaneando higiene de credenciales y variables de entorno...',
-    'Dimensionando servicios y arquitectura en Amazon Web Services (AWS)...'
+  const SCAN_PHASES = [
+    { title: 'Conexión de red & Resolución DNS', desc: 'Validando direccionamiento IP y accesibilidad perimetral del host...' },
+    { title: 'Inspección Criptográfica SSL/TLS', desc: 'Comprobando vigencia de certificados, suites de cifrado y protocolo TLS...' },
+    { title: 'Escaneo de Cabeceras Defensivas HTTP', desc: 'Analizando directivas de HSTS, CSP (anti-XSS) y protección anti-clickjacking...' },
+    { title: 'Evaluación OWASP & Fuga de Secretos', desc: 'Buscando vulnerabilidades comunes, configuraciones CORS y archivos .env expuestos...' },
+    { title: 'Modelado de Arquitectura en Amazon Web Services (AWS)', desc: 'Calculando puntaje exacto y dimensionando servicios para la migración...' }
   ];
 
   useEffect(() => {
@@ -51,28 +53,44 @@ export const CloudAuditoriaPage: React.FC = () => {
       return;
     }
     setErrorMessage(null);
+    setAnalyzingTarget(urlInput.trim());
     setIsAnalyzing(true);
     setScanStep(0);
+    setScanProgress(10);
 
-    const stepInterval = setInterval(() => {
-      setScanStep(prev => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev));
-    }, 700);
+    // Animación de carga progresiva ultra realista (4 segundos con pasos visibles)
+    const interval = setInterval(() => {
+      setScanProgress(prev => {
+        if (prev < 30) return prev + 15;
+        if (prev < 60) return prev + 12;
+        if (prev < 85) return prev + 8;
+        if (prev < 98) return prev + 3;
+        return prev;
+      });
+      setScanStep(prev => (prev < SCAN_PHASES.length - 1 ? prev + 1 : prev));
+    }, 750);
 
     try {
+      // Dejamos correr la simulación de análisis durante ~3.6 segundos para realismo total
+      await new Promise(resolve => setTimeout(resolve, 3600));
       const result = await CloudAuditService.analyzeUrl(urlInput);
-      clearInterval(stepInterval);
-      setProjects(CloudAuditService.getProjects());
-      setSelectedProject(result);
-      setSelectedResultTab('aws');
-      setUrlInput('');
+      clearInterval(interval);
+      setScanProgress(100);
+      
       setTimeout(() => {
-        detailsRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 200);
+        setIsAnalyzing(false);
+        setProjects(CloudAuditService.getProjects());
+        setSelectedProject(result);
+        setSelectedResultTab('aws');
+        setUrlInput('');
+        setTimeout(() => {
+          detailsRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 150);
+      }, 400);
     } catch (err: any) {
-      clearInterval(stepInterval);
-      setErrorMessage(err.message || 'Error al analizar la URL.');
-    } finally {
+      clearInterval(interval);
       setIsAnalyzing(false);
+      setErrorMessage(err.message || 'Error al analizar la URL.');
     }
   };
 
@@ -87,28 +105,42 @@ export const CloudAuditoriaPage: React.FC = () => {
     }
 
     setErrorMessage(null);
+    setAnalyzingTarget(file.name);
     setIsAnalyzing(true);
     setScanStep(0);
+    setScanProgress(12);
 
-    const stepInterval = setInterval(() => {
-      setScanStep(prev => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev));
+    const interval = setInterval(() => {
+      setScanProgress(prev => {
+        if (prev < 30) return prev + 14;
+        if (prev < 60) return prev + 12;
+        if (prev < 85) return prev + 8;
+        if (prev < 98) return prev + 4;
+        return prev;
+      });
+      setScanStep(prev => (prev < SCAN_PHASES.length - 1 ? prev + 1 : prev));
     }, 800);
 
     try {
+      await new Promise(resolve => setTimeout(resolve, 3800));
       const result = await CloudAuditService.analyzeZipFile(file);
-      clearInterval(stepInterval);
-      setProjects(CloudAuditService.getProjects());
-      setSelectedProject(result);
-      setSelectedResultTab('aws');
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      clearInterval(interval);
+      setScanProgress(100);
+
       setTimeout(() => {
-        detailsRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 200);
+        setIsAnalyzing(false);
+        setProjects(CloudAuditService.getProjects());
+        setSelectedProject(result);
+        setSelectedResultTab('aws');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setTimeout(() => {
+          detailsRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 150);
+      }, 400);
     } catch (err: any) {
-      clearInterval(stepInterval);
-      setErrorMessage(err.message || 'Error al inspeccionar el archivo .ZIP.');
-    } finally {
+      clearInterval(interval);
       setIsAnalyzing(false);
+      setErrorMessage(err.message || 'Error al inspeccionar el archivo .ZIP.');
     }
   };
 
@@ -229,17 +261,8 @@ export const CloudAuditoriaPage: React.FC = () => {
               disabled={isAnalyzing}
               className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-bold text-sm md:text-base transition-all shadow-md shadow-blue-600/20 shrink-0 cursor-pointer"
             >
-              {isAnalyzing ? (
-                <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  Analizando...
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="w-5 h-5" />
-                  Analizar Seguridad
-                </>
-              )}
+              <ShieldCheck className="w-5 h-5" />
+              Analizar Seguridad
             </button>
           </form>
         )}
@@ -313,37 +336,100 @@ export const CloudAuditoriaPage: React.FC = () => {
           </div>
         )}
 
-        {/* Indicador de escaneo animado */}
-        {isAnalyzing && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-6 p-5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-500/30 shadow-sm space-y-3"
-          >
-            <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300 font-semibold">
-              <span className="flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />
-                Ejecutando auditoría de seguridad y motor de recomendación AWS...
-              </span>
-              <span>Paso {scanStep + 1} de {SCAN_STEPS.length}</span>
-            </div>
-            <div className="w-full bg-blue-200 dark:bg-blue-900/60 rounded-full h-2 overflow-hidden">
-              <motion.div
-                className="bg-blue-600 dark:bg-blue-400 h-full rounded-full"
-                initial={{ width: '15%' }}
-                animate={{ width: `${((scanStep + 1) / SCAN_STEPS.length) * 100}%` }}
-                transition={{ duration: 0.4 }}
-              />
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 italic">
-              {SCAN_STEPS[scanStep]}
-            </p>
-          </motion.div>
-        )}
-
       </div>
 
-      {/* 2. REPORTE EN DETALLE (SOLO APARECE AL HACER CLIC EN 'VER MÁS DETALLES' O AL ANALIZAR) */}
+      {/* MODAL DE CARGA ULTRA REALISTA (CON PASOS Y PORCENTAJE EN TIEMPO REAL) */}
+      <AnimatePresence>
+        {isAnalyzing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-700 space-y-6"
+            >
+              {/* Radar animado y Título */}
+              <div className="text-center space-y-2">
+                <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-blue-500/20 animate-ping" />
+                  <div className="relative w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <ShieldCheck className="w-7 h-7" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                  Auditoría de Ciberseguridad en Curso
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate max-w-md mx-auto">
+                  Objetivo: {analyzingTarget}
+                </p>
+              </div>
+
+              {/* Barra de progreso con porcentaje */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    Analizando componentes y vulnerabilidades...
+                  </span>
+                  <span className="text-blue-600 dark:text-blue-400 font-extrabold text-sm">
+                    {Math.min(100, scanProgress)}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-3 overflow-hidden p-0.5">
+                  <motion.div
+                    className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, scanProgress)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Checklist de fases en tiempo real */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                {SCAN_PHASES.map((phase, idx) => {
+                  const isDone = idx < scanStep;
+                  const isCurrent = idx === scanStep;
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-3 p-2.5 rounded-xl transition-colors text-xs ${
+                        isCurrent
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-500/30'
+                          : isDone
+                          ? 'text-slate-700 dark:text-slate-300'
+                          : 'text-slate-400 dark:text-slate-600 opacity-60'
+                      }`}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {isDone ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        ) : isCurrent ? (
+                          <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-600" />
+                        )}
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="font-bold block">{phase.title}</span>
+                        {isCurrent && (
+                          <span className="text-[11px] text-blue-600 dark:text-blue-300 italic block">
+                            {phase.desc}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="text-center text-[11px] text-slate-400 dark:text-slate-500">
+                Generando matriz OWASP Top 10 y mapeo de servicios AWS...
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. REPORTE EN DETALLE (SE ABRE AL ANALIZAR O AL CLIC EN 'VER MÁS DETALLES') */}
       {selectedProject && (
         <div ref={detailsRef} className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
           
@@ -399,7 +485,7 @@ export const CloudAuditoriaPage: React.FC = () => {
             {/* Medidor Circular de Score & 4 Pilares de Seguridad */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center pt-6">
               
-              {/* Medidor Circular Estilo PageSpeed */}
+              {/* Medidor Circular Estilo PageSpeed (PUNTAJE EXACTO REALISTA) */}
               <div className="md:col-span-4 flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-700/60">
                 <div className="relative w-36 h-36 flex items-center justify-center">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
@@ -416,7 +502,7 @@ export const CloudAuditoriaPage: React.FC = () => {
                       cy="50"
                       r="40"
                       className={`stroke-current transition-all duration-1000 ease-out ${
-                        selectedProject.overallScore >= 90
+                        selectedProject.overallScore >= 85
                           ? 'text-emerald-500'
                           : selectedProject.overallScore >= 60
                           ? 'text-amber-500'
@@ -431,7 +517,7 @@ export const CloudAuditoriaPage: React.FC = () => {
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <span className={`text-4xl font-extrabold tracking-tight ${
-                      selectedProject.overallScore >= 90
+                      selectedProject.overallScore >= 85
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : selectedProject.overallScore >= 60
                         ? 'text-amber-600 dark:text-amber-400'
@@ -447,16 +533,16 @@ export const CloudAuditoriaPage: React.FC = () => {
 
                 <div className="text-center mt-3 space-y-1">
                   <span className={`text-sm font-bold block ${
-                    selectedProject.overallScore >= 90
+                    selectedProject.overallScore >= 85
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : selectedProject.overallScore >= 60
                       ? 'text-amber-600 dark:text-amber-400'
                       : 'text-rose-600 dark:text-rose-400'
                   }`}>
-                    {selectedProject.overallScore >= 90 ? 'Excelente Seguridad' : selectedProject.overallScore >= 60 ? 'Seguridad Aceptable' : 'Riesgo Crítico'}
+                    {selectedProject.overallScore >= 85 ? 'Nivel Empresarial' : selectedProject.overallScore >= 60 ? 'Seguridad Aceptable' : 'Riesgo Crítico'}
                   </span>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs">
-                    Evaluación de seguridad basada en estándares OWASP Top 10 y AWS Well-Architected.
+                    Puntuación exacta basada en evaluación de vulnerabilidades OWASP y cabeceras de red.
                   </p>
                 </div>
               </div>
@@ -649,14 +735,14 @@ export const CloudAuditoriaPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Hoja de Ruta de Migración (4 Fases) */}
-              <div className="bg-slate-900 text-white rounded-3xl p-6 md:p-8 space-y-6 shadow-xl border border-slate-800">
+              {/* Hoja de Ruta de Migración (4 Fases) - FONDO BLANCO / CLARO (CORREGIDO) */}
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm border border-slate-200 dark:border-slate-700/80">
                 <div className="space-y-1">
-                  <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                    <Cloud className="w-5 h-5 text-blue-400" />
+                  <h3 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                    <Cloud className="w-5 h-5 text-blue-600" />
                     Flujo de Implementación de la Arquitectura en AWS
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Plan secuencial para migrar este sistema a producción en la nube de Amazon Web Services.
                   </p>
                 </div>
@@ -665,27 +751,27 @@ export const CloudAuditoriaPage: React.FC = () => {
                   {selectedProject.awsArchitecture.flowSteps.map((step) => (
                     <div
                       key={step.step}
-                      className="p-5 rounded-2xl bg-white/5 border border-white/10 space-y-3 relative overflow-hidden backdrop-blur-md"
+                      className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 space-y-3 relative overflow-hidden"
                     >
                       <div className="flex items-center justify-between">
                         <span className="w-7 h-7 rounded-lg bg-blue-600 text-white text-xs font-black flex items-center justify-center">
                           {step.step}
                         </span>
-                        <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                           {step.phase}
                         </span>
                       </div>
-                      <h4 className="font-bold text-sm text-white">
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">
                         {step.title}
                       </h4>
-                      <p className="text-xs text-slate-300 leading-relaxed">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                         {step.description}
                       </p>
-                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-white/10">
+                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-200 dark:border-slate-700">
                         {step.awsServices.map((srvName, sIdx) => (
                           <span
                             key={sIdx}
-                            className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-semibold"
+                            className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-semibold border border-blue-200/50 dark:border-blue-500/20"
                           >
                             {srvName}
                           </span>
@@ -951,7 +1037,7 @@ export const CloudAuditoriaPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4">
                       <span className={`text-sm font-extrabold ${
-                        proj.overallScore >= 90
+                        proj.overallScore >= 85
                           ? 'text-emerald-600 dark:text-emerald-400'
                           : proj.overallScore >= 60
                           ? 'text-amber-600 dark:text-amber-400'
