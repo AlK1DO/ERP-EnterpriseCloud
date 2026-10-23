@@ -27,8 +27,10 @@ export interface AWSServiceRecommendation {
   category: 'Cómputo & Red' | 'Base de Datos' | 'Seguridad & Cifrado' | 'Almacenamiento' | 'Monitoreo';
   iconKey: string;
   purpose: string;
+  whatItDoes: string; // ¿Qué hace este servicio en AWS?
   badge: string;
   whyNeeded: string;
+  whyUseIt: string;   // ¿Por qué debemos utilizarlo en este proyecto?
   freeTier: boolean;
 }
 
@@ -67,204 +69,7 @@ export interface AuditProject {
   };
 }
 
-const STORAGE_KEY = 'erp_cloud_audits_v1';
-
-// Auditorías iniciales de demostración para que el módulo no aparezca vacío
-const INITIAL_DEMO_PROJECTS: AuditProject[] = [
-  {
-    id: 'demo-erp-cloud',
-    name: 'ERP-EnterpriseCloud (Vercel Prod)',
-    target: 'https://erp-enterprise-cloud.vercel.app',
-    inputType: 'url',
-    createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-    overallScore: 92,
-    riskLevel: 'BAJO',
-    summary: 'Arquitectura SPA moderna protegida por TLS 1.3 con CDN global. Requiere añadir cabeceras estrictas de Content-Security-Policy (CSP) para compliance empresarial.',
-    pillars: [
-      { id: 'encryption', name: 'Cifrado & Tránsito SSL/TLS', score: 25, maxScore: 25, status: 'good', description: 'Canal HTTPS blindado con certificado vigente y TLS 1.3.' },
-      { id: 'headers', name: 'Cabeceras Defensivas HTTP', score: 28, maxScore: 35, status: 'warning', description: 'HSTS y X-Content-Type activos; falta reforzar política CSP.' },
-      { id: 'secrets', name: 'Secretos & Configuración', score: 20, maxScore: 20, status: 'good', description: 'No se detecta fuga pública de credenciales ni variables privadas.' },
-      { id: 'resilience', name: 'Superficie de Ataque & CORS', score: 19, maxScore: 20, status: 'good', description: 'Protección perimetral activa y endpoints REST autenticados.' }
-    ],
-    checks: [
-      {
-        id: 'chk-1',
-        pillarId: 'encryption',
-        title: 'Certificado SSL/TLS Válido y Vigente',
-        status: 'pass',
-        points: 15,
-        maxPoints: 15,
-        impact: 'CRÍTICO',
-        details: 'El endpoint responde bajo protocolo seguro HTTPS con certificado emitido por entidad de confianza.',
-        recommendation: 'Mantener renovación automática mediante AWS ACM.',
-        awsServiceMitigation: 'AWS Certificate Manager (ACM)'
-      },
-      {
-        id: 'chk-2',
-        pillarId: 'encryption',
-        title: 'Protocolo Criptográfico Moderno (TLS 1.3)',
-        status: 'pass',
-        points: 10,
-        maxPoints: 10,
-        impact: 'ALTO',
-        details: 'Cifrado de alta velocidad y suites criptográficas seguras (ChaCha20-Poly1305 / AES-GCM).',
-        recommendation: 'Deshabilitar versiones obsoletas de TLS 1.0 y 1.1 en CloudFront.',
-        awsServiceMitigation: 'Amazon CloudFront'
-      },
-      {
-        id: 'chk-3',
-        pillarId: 'headers',
-        title: 'HSTS (HTTP Strict Transport Security)',
-        status: 'pass',
-        points: 10,
-        maxPoints: 10,
-        impact: 'ALTO',
-        details: 'Cabecera max-age presente impidiendo degradación de conexión a HTTP plano.',
-        recommendation: 'Asegurar directiva includeSubDomains.',
-        awsServiceMitigation: 'AWS CloudFront Response Headers Policy'
-      },
-      {
-        id: 'chk-4',
-        pillarId: 'headers',
-        title: 'Content-Security-Policy (CSP) Restrictiva',
-        status: 'warn',
-        points: 8,
-        maxPoints: 15,
-        impact: 'MEDIO',
-        details: 'Falta cabecera CSP explícita para restringir la carga de scripts externos y mitigar ataques XSS.',
-        recommendation: 'Definir script-src \'self\' y bloquear orígenes inline no autorizados.',
-        awsServiceMitigation: 'AWS WAF (Web Application Firewall)'
-      },
-      {
-        id: 'chk-5',
-        pillarId: 'headers',
-        title: 'Protección X-Frame-Options (Anti-Clickjacking)',
-        status: 'pass',
-        points: 10,
-        maxPoints: 10,
-        impact: 'MEDIO',
-        details: 'La aplicación previene ser incrustada en iframes maliciosos de terceros.',
-        recommendation: 'Mantener cabecera SAMEORIGIN o DENY.',
-        awsServiceMitigation: 'AWS CloudFront'
-      },
-      {
-        id: 'chk-6',
-        pillarId: 'secrets',
-        title: 'Aislamiento de Variables de Entorno y Claves',
-        status: 'pass',
-        points: 20,
-        maxPoints: 20,
-        impact: 'CRÍTICO',
-        details: 'No se detectan tokens de base de datos ni service-keys expuestas en el bundle público.',
-        recommendation: 'Continuar usando variables de entorno cifradas en la nube.',
-        awsServiceMitigation: 'AWS Secrets Manager'
-      },
-      {
-        id: 'chk-7',
-        pillarId: 'resilience',
-        title: 'Mitigación contra Ataques de Denegación de Servicio (DDoS)',
-        status: 'pass',
-        points: 19,
-        maxPoints: 20,
-        impact: 'ALTO',
-        details: 'Tráfico enrutado a través de CDN distribuida con absorción perimetral de tráfico anómalo.',
-        recommendation: 'Incorporar AWS Shield Standard y reglas de limitación de tasa (Rate Limiting) en AWS WAF.',
-        awsServiceMitigation: 'AWS Shield & AWS WAF'
-      }
-    ],
-    awsArchitecture: {
-      effortLevel: 'Bajo',
-      estimatedMonthlyCost: '$18 - $42 USD',
-      tier: 'Starter / PyME',
-      services: [
-        {
-          name: 'Amazon CloudFront + S3',
-          category: 'Cómputo & Red',
-          iconKey: 'Globe',
-          purpose: 'Distribución y hosting estático de alta disponibilidad global con baja latencia.',
-          badge: 'CDN Global',
-          whyNeeded: 'Reduce la latencia para usuarios en todo el país y protege los servidores de origen.',
-          freeTier: true
-        },
-        {
-          name: 'AWS App Runner / ECS Fargate',
-          category: 'Cómputo & Red',
-          iconKey: 'Server',
-          purpose: 'Ejecución serverless de APIs en contenedores Docker sin administrar servidores Linux.',
-          badge: 'Serverless Compute',
-          whyNeeded: 'Escala automáticamente de 0 a múltiples instancias según el tráfico del ERP.',
-          freeTier: false
-        },
-        {
-          name: 'Amazon RDS PostgreSQL Multi-AZ',
-          category: 'Base de Datos',
-          iconKey: 'Database',
-          purpose: 'Motor de base de datos relacional gestionado con copias de seguridad continuas y réplica en caliente.',
-          badge: 'DB Gestionada',
-          whyNeeded: 'Garantiza tolerancia a fallos y almacenamiento transaccional seguro de ventas e inventarios.',
-          freeTier: true
-        },
-        {
-          name: 'AWS WAF (Web Application Firewall)',
-          category: 'Seguridad & Cifrado',
-          iconKey: 'ShieldCheck',
-          purpose: 'Filtrado perimetral contra inyecciones SQL, bots maliciosos y ataques cross-site scripting.',
-          badge: 'Firewall Perimetral',
-          whyNeeded: 'Bloquea solicitudes web malintencionadas antes de que lleguen a la infraestructura interna.',
-          freeTier: false
-        },
-        {
-          name: 'AWS Secrets Manager',
-          category: 'Seguridad & Cifrado',
-          iconKey: 'Lock',
-          purpose: 'Gestión cifrada de credenciales de base de datos, claves API y tokens con rotación periódica.',
-          badge: 'Cifrado de Secretos',
-          whyNeeded: 'Evita contraseñas quemadas en el código fuente cumpliendo con normativas ISO 27001.',
-          freeTier: false
-        },
-        {
-          name: 'Amazon Route 53',
-          category: 'Cómputo & Red',
-          iconKey: 'Cpu',
-          purpose: 'Servicio DNS de alta disponibilidad y gestión de nombres de dominio corporativos.',
-          badge: 'DNS Anycast',
-          whyNeeded: 'Enruta peticiones de usuarios hacia CloudFront con redundancia 100% SLA.',
-          freeTier: false
-        }
-      ],
-      flowSteps: [
-        {
-          step: 1,
-          phase: 'Seguridad & DNS',
-          title: 'Enrutamiento y Validación de Dominio',
-          description: 'El usuario accede vía Route 53 y valida su certificado digital en AWS Certificate Manager.',
-          awsServices: ['Amazon Route 53', 'AWS Certificate Manager']
-        },
-        {
-          step: 2,
-          phase: 'Filtrado Perimetral',
-          title: 'Inspección de Tráfico y Protección Anti-DDoS',
-          description: 'AWS WAF y AWS Shield analizan cada paquete entrante para neutralizar ataques SQLi, XSS y botnets.',
-          awsServices: ['AWS WAF', 'AWS Shield']
-        },
-        {
-          step: 3,
-          phase: 'Distribución y Entrega',
-          title: 'Caché de Frontend en Amazon CloudFront',
-          description: 'Los recursos de la interfaz SPA (Vite/React) se entregan desde el bucket privado de Amazon S3.',
-          awsServices: ['Amazon CloudFront', 'Amazon S3']
-        },
-        {
-          step: 4,
-          phase: 'Procesamiento Seguro',
-          title: 'Ejecución de Lógica en ECS Fargate & Conexión a RDS',
-          description: 'Las peticiones de API se procesan en microservicios dentro de una VPC privada conectada a Amazon RDS.',
-          awsServices: ['AWS ECS Fargate', 'Amazon RDS PostgreSQL', 'AWS Secrets Manager']
-        }
-      ]
-    }
-  }
-];
+const STORAGE_KEY = 'erp_cloud_audits_v2';
 
 export class CloudAuditService {
   /**
@@ -274,13 +79,12 @@ export class CloudAuditService {
     try {
       const data = localStorage.getItem(STORAGE_KEY);
       if (!data) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_DEMO_PROJECTS));
-        return INITIAL_DEMO_PROJECTS;
+        return [];
       }
       return JSON.parse(data);
     } catch (e) {
       console.warn('Error leyendo auditorías de localStorage:', e);
-      return INITIAL_DEMO_PROJECTS;
+      return [];
     }
   }
 
@@ -329,21 +133,18 @@ export class CloudAuditService {
     const isVercel = hostname.includes('vercel.app');
 
     // Intentar verificar conectividad real si no es localhost
-    let connectionSuccess = true;
     try {
       if (!isLocalhost && !isGitHub) {
-        // Intentar un HEAD o fetch ligero para detectar cabeceras o accesibilidad
         await Promise.race([
           fetch(cleanUrl, { mode: 'no-cors' }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
         ]);
       }
     } catch {
-      // no-cors fetch failure or timeout is acceptable, continue analysis heuristics
-      connectionSuccess = !isLocalhost;
+      // fallo de timeout o no-cors es esperado por políticas del navegador
     }
 
-    // Calcular checks realistas según características detectadas
+    // Checks según características detectadas
     const checks: AuditCheck[] = [];
 
     // 1. Cifrado & Tránsito
@@ -419,12 +220,12 @@ export class CloudAuditService {
       id: 'chk-head-2',
       pillarId: 'headers',
       title: 'Content-Security-Policy (CSP)',
-      status: isVercel ? 'warn' : 'warn',
-      points: 7,
+      status: 'warn',
+      points: 8,
       maxPoints: 15,
       impact: 'ALTO',
-      details: 'La política CSP actual no restringe orígenes no autorizados o permite recursos inline, elevando riesgo de Cross-Site Scripting (XSS).',
-      recommendation: 'Implementar directivas default-src \'self\' y bloquear orígenes no reconocidos.',
+      details: 'La política CSP no restringe de forma estricta todos los orígenes, lo que podría permitir scripts no autorizados (riesgo XSS).',
+      recommendation: 'Implementar directivas default-src \'self\' y bloquear orígenes inline no auditados.',
       awsServiceMitigation: 'AWS WAF (Web Application Firewall)'
     });
 
@@ -583,16 +384,13 @@ export class CloudAuditService {
     const totalFiles = fileNames.length;
     const sizeKb = Math.round(file.size / 1024);
 
-    // Búsqueda de archivos sensibles o malas prácticas en el ZIP
     const sensitiveFilesFound: string[] = [];
     const detectedStack: string[] = [];
     const safePractices: string[] = [];
 
-    // Inspección de archivos
     for (const name of fileNames) {
       const lower = name.toLowerCase();
 
-      // Fuga de credenciales críticas
       if (lower.endsWith('.env') || lower.includes('.env.local') || lower.includes('.env.production')) {
         sensitiveFilesFound.push(name);
       }
@@ -603,7 +401,6 @@ export class CloudAuditService {
         sensitiveFilesFound.push(name);
       }
 
-      // Detección de Stack tecnológico
       if (lower.endsWith('package.json') && !detectedStack.includes('Node.js / JavaScript')) {
         detectedStack.push('Node.js / JavaScript');
       }
@@ -625,7 +422,6 @@ export class CloudAuditService {
       }
     }
 
-    // Comprobación de buenas prácticas
     if (sensitiveFilesFound.length === 0) {
       safePractices.push('Higiene de secretos: No se detectan archivos .env ni llaves privadas incluidas en el código fuente.');
     }
@@ -635,7 +431,6 @@ export class CloudAuditService {
 
     const checks: AuditCheck[] = [];
 
-    // 1. Secretos y Credenciales (Pilar Crítico en ZIP)
     if (sensitiveFilesFound.length > 0) {
       checks.push({
         id: 'chk-zip-sec-1',
@@ -664,7 +459,6 @@ export class CloudAuditService {
       });
     }
 
-    // 2. Arquitectura de Dependencias
     const hasPackageJson = fileNames.some(f => f.toLowerCase().endsWith('package.json'));
     checks.push({
       id: 'chk-zip-dep-1',
@@ -681,7 +475,6 @@ export class CloudAuditService {
       awsServiceMitigation: 'AWS CodePipeline / AWS CodeBuild'
     });
 
-    // 3. Cifrado y Configuración
     checks.push({
       id: 'chk-zip-enc-1',
       pillarId: 'encryption',
@@ -695,7 +488,6 @@ export class CloudAuditService {
       awsServiceMitigation: 'AWS KMS (Key Management Service) & ACM'
     });
 
-    // 4. Cabeceras y Resiliencia
     checks.push({
       id: 'chk-zip-head-1',
       pillarId: 'headers',
@@ -724,7 +516,6 @@ export class CloudAuditService {
       awsServiceMitigation: 'AWS ECS Fargate / Amazon ECR'
     });
 
-    // Puntajes
     const pillarScores = {
       encryption: checks.filter(c => c.pillarId === 'encryption').reduce((acc, c) => acc + c.points, 0),
       headers: checks.filter(c => c.pillarId === 'headers').reduce((acc, c) => acc + c.points, 0),
@@ -802,7 +593,7 @@ export class CloudAuditService {
   }
 
   /**
-   * Genera la arquitectura recomendada de AWS adaptada al score y stack
+   * Genera la arquitectura recomendada de AWS con explicación detallada de ¿Qué hace? y ¿Por qué utilizarlo?
    */
   private static generateAWSArchitecture(score: number, stackLabel: string) {
     const isHighSecurity = score >= 85;
@@ -812,72 +603,88 @@ export class CloudAuditService {
         name: 'Amazon CloudFront',
         category: 'Cómputo & Red',
         iconKey: 'Globe',
-        purpose: 'Red de distribución de contenido (CDN) global que entrega el frontend con microsegundos de latencia y protección perimetral.',
-        badge: 'CDN Global',
-        whyNeeded: 'Reduce la carga del servidor principal hasta en un 80% y previene ataques distribuidos de capa 7.',
+        purpose: 'Red de distribución de contenido (CDN) global con puntos de presencia de baja latencia.',
+        whatItDoes: 'Almacena en caché y entrega el frontend web (HTML, CSS, JavaScript e imágenes) desde servidores perimetrales cercanos al usuario en todo el mundo.',
+        badge: 'CDN Global de Alta Velocidad',
+        whyNeeded: 'Acelera la velocidad del ERP hasta 5x, reduce consumo del servidor en un 80% y absorbe ataques de denegación de servicio (DDoS).',
+        whyUseIt: 'Porque el ERP necesita responder de forma inmediata para ventas y facturación en sucursales remotas sin saturar el servidor principal.',
         freeTier: true
       },
       {
         name: 'Amazon S3 (Simple Storage Service)',
         category: 'Almacenamiento',
         iconKey: 'HardDrive',
-        purpose: 'Almacenamiento de alta durabilidad (99.999999999%) para los archivos estáticos de la web, comprobantes de pago PDF y facturas XML.',
-        badge: 'Object Storage',
-        whyNeeded: 'Garantiza que ningún comprobante o archivo del ERP se pierda con versionado y cifrado AES-256 automático.',
+        purpose: 'Almacenamiento de objetos con durabilidad del 99.999999999% (11 nueves).',
+        whatItDoes: 'Almacena de forma segura e ilimitada los archivos estáticos de la web, comprobantes electrónicos (facturas XML/PDF) y backups de seguridad.',
+        badge: 'Almacenamiento de Alta Durabilidad',
+        whyNeeded: 'Garantiza que ningún comprobante tributario o documento contable se pierda ante fallos de disco o borrados accidentales.',
+        whyUseIt: 'Porque la normativa contable y tributaria exige custodiar facturas electrónicas durante años con cifrado AES-256 e integridad absoluta.',
         freeTier: true
       },
       {
-        name: 'AWS ECS con AWS Fargate',
+        name: 'AWS ECS con Fargate',
         category: 'Cómputo & Red',
         iconKey: 'Server',
-        purpose: 'Motor de contenedores Docker sin necesidad de aprovisionar ni parchar servidores Linux EC2.',
+        purpose: 'Ejecución serverless de contenedores Docker para la lógica de negocio y APIs.',
+        whatItDoes: 'Ejecuta el backend de Node.js / Python en contenedores aislados sin necesidad de configurar, parchar ni mantener servidores físicos o virtuales Linux.',
         badge: 'Contenedores Serverless',
-        whyNeeded: 'Permite ejecutar el backend Node.js / Python del ERP con escalamiento horizontal automático ante alta demanda.',
+        whyNeeded: 'Escala automáticamente la cantidad de contenedores si hay picos de concurrencia y se reduce cuando baja el tráfico para ahorrar dinero.',
+        whyUseIt: 'Porque elimina los costos y horas de mantenimiento de servidores tradicionales, permitiendo desplegar actualizaciones sin caída del sistema.',
         freeTier: false
       },
       {
         name: 'Amazon RDS PostgreSQL Multi-AZ',
         category: 'Base de Datos',
         iconKey: 'Database',
-        purpose: 'Base de datos SQL administrada con replicación síncrona en otra zona de disponibilidad y respaldos automáticos.',
-        badge: 'SQL Administrado',
-        whyNeeded: 'Cumple con transacciones ACID para inventarios y ventas, garantizando alta disponibilidad sin pérdida de datos.',
+        purpose: 'Motor de base de datos relacional administrado con réplica síncrona en otra zona de disponibilidad.',
+        whatItDoes: 'Gestiona la base de datos SQL del ERP, aplicando parches automáticos, copias de seguridad continuas y conmutación automática por error (Failover).',
+        badge: 'Base de Datos SQL Tolerante a Fallos',
+        whyNeeded: 'Garantiza transacciones seguras (ACID) para inventarios, Kardex y finanzas, replicando cada dato en otro centro de datos en tiempo real.',
+        whyUseIt: 'Porque si un centro de datos sufre un corte eléctrico o fallo de hardware, RDS cambia a la base de datos de respaldo en segundos sin perder ninguna venta.',
         freeTier: true
       },
       {
         name: 'AWS WAF (Web Application Firewall)',
         category: 'Seguridad & Cifrado',
         iconKey: 'ShieldCheck',
-        purpose: 'Firewall de aplicaciones web que inspecciona peticiones HTTP/HTTPS para bloquear inyecciones SQL, bots y Cross-Site Scripting.',
-        badge: 'Firewall Anti-Hacking',
-        whyNeeded: 'Defiende la información sensible de clientes, cotizaciones y precios de la empresa contra ataques maliciosos.',
+        purpose: 'Firewall de aplicaciones web que filtra el tráfico perimetral contra ciberataques.',
+        whatItDoes: 'Inspecciona cada solicitud web que llega al ERP y bloquea automáticamente ataques de inyección SQL, Cross-Site Scripting (XSS), bots maliciosos y escaneos de vulnerabilidades.',
+        badge: 'Firewall Anti-Hacking & Anti-DDoS',
+        whyNeeded: 'Evita que atacantes extraigan la base de clientes, precios o manipulen compras mediante vulnerabilidades web comunes.',
+        whyUseIt: 'Porque añade una muralla defensiva perimetral antes de que cualquier paquete llegue a la base de datos o al backend del ERP.',
         freeTier: false
       },
       {
         name: 'AWS Secrets Manager',
         category: 'Seguridad & Cifrado',
         iconKey: 'Lock',
-        purpose: 'Bóveda centralizada para almacenar credenciales de base de datos, tokens de SUNAT/Migo y llaves criptográficas.',
-        badge: 'Bóveda de Secretos',
-        whyNeeded: 'Elimina cualquier contraseña en texto plano del código fuente, rotando credenciales de forma periódica.',
+        purpose: 'Bóveda centralizada y cifrada para contraseñas, tokens y credenciales de APIs.',
+        whatItDoes: 'Almacena claves secretas (como contraseñas de PostgreSQL o tokens de SUNAT/Migo) bajo cifrado estricto y permite rotarlas automáticamente.',
+        badge: 'Cifrado de Credenciales',
+        whyNeeded: 'Elimina las contraseñas en texto plano de los archivos de código fuente, reduciendo el riesgo de fuga por descuidos.',
+        whyUseIt: 'Porque garantiza que ningún programador ni atacante que descargue el código pueda ver las credenciales de la base de datos de producción.',
         freeTier: false
       },
       {
         name: 'Amazon Route 53',
         category: 'Cómputo & Red',
         iconKey: 'Cpu',
-        purpose: 'DNS Anycast global y balanceo de tráfico con conmutación por error ante desastres (Failover).',
-        badge: 'DNS de Alta Disponibilidad',
-        whyNeeded: 'Garantiza resolución rápida de nombres de dominio empresariales con 100% de disponibilidad.',
+        purpose: 'Servicio DNS Anycast global de alta disponibilidad y gestión de dominios.',
+        whatItDoes: 'Traduce nombres de dominio (ej. erp.tuempresa.com) a direcciones IP con latencia mínima y enrutamiento inteligente basado en la ubicación del cliente.',
+        badge: 'DNS de 100% SLA',
+        whyNeeded: 'Ofrece disponibilidad garantizada y conecta de forma directa con los certificados SSL de AWS Certificate Manager.',
+        whyUseIt: 'Porque asegura que la dirección web del ERP siempre resuelva rápidamente y nunca se caiga a nivel de nombres de dominio.',
         freeTier: false
       },
       {
-        name: 'Amazon CloudWatch & AWS CloudTrail',
+        name: 'Amazon CloudWatch & CloudTrail',
         category: 'Monitoreo',
         iconKey: 'Activity',
-        purpose: 'Monitoreo continuo de consumo de CPU, memoria, métricas de ventas y auditoría de accesos de administradores.',
-        badge: 'Auditoría & Logs',
-        whyNeeded: 'Permite alertar por correo o Slack si el servidor supera el 85% de capacidad o si se detectan anomalías.',
+        purpose: 'Monitor de métricas operativas, registro de eventos y auditoría de accesos.',
+        whatItDoes: 'Recopila métricas de uso de CPU, memoria, errores 500 y registra qué usuario o administrador realizó cambios en la infraestructura de la nube.',
+        badge: 'Auditoría & Logs en Tiempo Real',
+        whyNeeded: 'Permite configurar alertas automáticas al correo o Telegram si el servidor se satura o si alguien intenta accesos no autorizados.',
+        whyUseIt: 'Porque permite cumplir con las normas de auditoría informática requeridas por la empresa y el profesor.',
         freeTier: true
       }
     ];
@@ -885,37 +692,37 @@ export class CloudAuditService {
     const flowSteps: MigrationStep[] = [
       {
         step: 1,
-        phase: 'Fase de Aprovisionamiento Base',
-        title: 'Creación de VPC y Red Privada',
-        description: 'Se configuran subredes públicas y privadas con NAT Gateway en AWS para aislar la base de datos de Internet.',
-        awsServices: ['Amazon VPC', 'AWS IAM']
+        phase: 'Fase 1: Seguridad & Red Privada',
+        title: 'Creación de VPC y Configuración de Reglas de Firewall',
+        description: 'Se crea la red virtual (Amazon VPC) aislando la base de datos de Internet y se activa AWS WAF para filtrar peticiones maliciosas.',
+        awsServices: ['Amazon VPC', 'AWS WAF', 'AWS Secrets Manager']
       },
       {
         step: 2,
-        phase: 'Seguridad y Certificados Digitales',
-        title: 'Blindaje con AWS WAF y Certificados SSL',
-        description: 'Se emite el certificado HTTPS con AWS ACM y se vinculan las reglas de AWS WAF contra inyecciones SQL.',
-        awsServices: ['AWS Certificate Manager (ACM)', 'AWS WAF', 'Amazon Route 53']
+        phase: 'Fase 2: Certificados y Dominio',
+        title: 'Validación de Dominio y Certificados SSL/TLS',
+        description: 'Se registra el dominio en Amazon Route 53 y se solicita el certificado HTTPS en AWS Certificate Manager para cifrar el 100% de la comunicación.',
+        awsServices: ['Amazon Route 53', 'AWS Certificate Manager (ACM)']
       },
       {
         step: 3,
-        phase: 'Migración de Datos y Base de Datos',
-        title: 'Instanciación de Amazon RDS PostgreSQL',
-        description: 'Migración del esquema relacional (clientes, ventas, inventarios, kardex) con copias de seguridad continuas.',
-        awsServices: ['Amazon RDS', 'AWS Secrets Manager']
+        phase: 'Fase 3: Base de Datos y Datos',
+        title: 'Aprovisionamiento de Amazon RDS Multi-AZ',
+        description: 'Se despliega PostgreSQL gestionado, se migra la estructura de tablas y se programan respaldos automáticos cada noche.',
+        awsServices: ['Amazon RDS PostgreSQL', 'Amazon S3']
       },
       {
         step: 4,
-        phase: 'Despliegue de Aplicación',
-        title: 'Hosting Estático en S3 + CloudFront y Backend Fargate',
-        description: 'Despliegue del frontend Vite en CloudFront y del servidor API en contenedores administrados de ECS Fargate.',
+        phase: 'Fase 4: Despliegue de la Aplicación',
+        title: 'Alojamiento Frontend en CloudFront y Backend Fargate',
+        description: 'La web SPA se almacena en S3 + CloudFront para máxima velocidad, y la API se orquesta en contenedores Docker de AWS ECS Fargate.',
         awsServices: ['Amazon CloudFront', 'Amazon S3', 'AWS ECS Fargate']
       }
     ];
 
     return {
       effortLevel: (isHighSecurity ? 'Bajo' : 'Medio') as 'Bajo' | 'Medio' | 'Alto',
-      estimatedMonthlyCost: isHighSecurity ? '$22 - $48 USD' : '$35 - $75 USD',
+      estimatedMonthlyCost: isHighSecurity ? '$18 - $42 USD' : '$35 - $65 USD',
       tier: 'Starter / PyME' as 'Starter / PyME' | 'Enterprise / Escalable',
       services,
       flowSteps
