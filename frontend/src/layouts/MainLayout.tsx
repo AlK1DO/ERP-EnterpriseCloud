@@ -3,8 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Receipt, FileText, 
   Package, ArrowRightLeft, Boxes, FileBarChart, 
-  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon,
-  Cloud
+  Settings, Menu, Bell, Sun, Moon, LogIn, LogOut, User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -37,12 +36,6 @@ const MENU_SECTIONS = [
       { name: 'Stock de productos', path: '/stock-productos', icon: <Boxes size={20} /> },
       { name: 'Ingreso al Kardex', path: '/ingreso-kardex', icon: <Package size={20} /> },
       { name: 'Movimiento de Kardex', path: '/movimiento-kardex', icon: <ArrowRightLeft size={20} /> },
-    ]
-  },
-  {
-    title: 'CLOUD & SEGURIDAD',
-    items: [
-      { name: 'Auditoría & Migración AWS', path: '/auditoria-cloud', icon: <Cloud size={20} /> },
     ]
   },
   {

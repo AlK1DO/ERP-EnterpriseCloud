@@ -13,7 +13,6 @@ import { MantenimientosPage } from './modules/mantenimientos/MantenimientosPage'
 import { ClientesPage } from './modules/clientes/ClientesPage';
 import { ProveedoresPage } from './modules/proveedores/ProveedoresPage';
 import { CotizacionesPage } from './modules/cotizaciones/CotizacionesPage';
-import { CloudAuditoriaPage } from './modules/cloud/CloudAuditoriaPage';
 import { LoginPage } from '@/components/ui/sign-in-page';
 import { SignUpPage } from '@/components/ui/sign-up-page';
 
@@ -36,9 +35,6 @@ function App() {
           <Route path="ingreso-kardex" element={<IngresoKardexPage />} />
           <Route path="movimiento-kardex" element={<MovimientoKardexPage />} />
           <Route path="stock-productos" element={<StockProductosPage />} />
-
-          {/* Módulo de Ingeniería Cloud & Seguridad AWS */}
-          <Route path="auditoria-cloud" element={<CloudAuditoriaPage />} />
 
           {/* Módulos de Administración y Maestros (desde rama-SSJ) */}
           <Route path="reportes" element={<ReportesPage />} />
